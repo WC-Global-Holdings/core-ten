@@ -62,7 +62,10 @@ main{flex:1;padding:16px 0 90px}
 /* --- week dots --- */
 .week-month{font-family:var(--display);font-size:18px;font-weight:600;color:var(--ink);letter-spacing:.02em;margin-bottom:-6px}
 .week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.day{display:flex;flex-direction:column;align-items:center;gap:5px}
+.day{display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:0;font:inherit;cursor:pointer;color:inherit}
+.day:active .dot{transform:scale(.94)}
+.chip.sm{padding:5px 11px;font-size:13px}
+.choice.sm{display:flex;gap:6px} .choice.sm button{padding:7px 10px;font-size:13px;min-width:0}
 .day .wd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
 .dot{position:relative;width:36px;height:36px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-family:var(--display);font-size:15px;font-weight:600;color:var(--ink);background:var(--panel)}
 .dot.done{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -288,6 +291,7 @@ body.tv.in-session .top .gear{display:none}
           <div class="big" id="h-title">Session A</div>
           <p class="muted" id="h-desc">Stability. Learn the brace and the three base patterns.</p>
         </div>
+        <div class="chips" id="h-viewer" hidden></div>
         <div class="week-month" id="h-month">October 2026</div>
         <div class="week" id="h-week-dots"></div>
         <button class="btn" id="h-start">Start today's 10 minutes</button>
@@ -348,12 +352,13 @@ body.tv.in-session .top .gear{display:none}
       <div class="card stack">
         <span class="eyebrow">Done · <span id="c-min" class="num">10</span> min</span>
         <div id="c-who-wrap" class="stack" style="gap:8px"><span class="small muted">Who did it?</span><div class="chips" id="c-who"></div></div>
-        <h2 style="font-size:30px">How does your back feel right now, compared to before?</h2>
+        <h2 style="font-size:30px" id="c-q">How does your back feel right now, compared to before?</h2>
         <div class="choice" id="c-choice">
           <button data-v="better" aria-pressed="false">Better</button>
           <button data-v="same" aria-pressed="false">Same</button>
           <button data-v="worse" aria-pressed="false">Worse</button>
         </div>
+        <div class="stack" id="c-backs" style="gap:8px" hidden></div>
         <textarea id="c-note" placeholder="Optional. Anything that pinched, felt easy, or you want to change next time."></textarea>
         <button class="btn" id="c-save">Save session</button>
         <p class="small muted">"Worse" twice in a row means stop and read the safety note on the Blocks tab.</p>
@@ -362,6 +367,7 @@ body.tv.in-session .top .gear{display:none}
 
     <!-- ================= PROGRESS ================= -->
     <section class="view stack" id="v-progress" hidden>
+      <div class="chips" id="p-people" hidden></div>
       <div class="kpis">
         <div class="kpi"><div class="v num" id="p-total">0</div><div class="l">Sessions</div></div>
         <div class="kpi"><div class="v num" id="p-streak">0</div><div class="l">Streak</div></div>
@@ -427,6 +433,13 @@ body.tv.in-session .top .gear{display:none}
     <div class="stack" id="gprint-body"></div>
   </div>
 </div>
+<div class="sheet" id="plan" hidden role="dialog" aria-modal="true" aria-labelledby="plan-title">
+  <div class="in">
+    <div class="grab"></div>
+    <div class="row" style="justify-content:space-between;gap:8px"><button class="btn ghost sm" id="plan-prev" aria-label="Previous day">‹</button><span class="eyebrow" id="plan-title" style="text-align:center;flex:1">Day</span><button class="btn ghost sm" id="plan-next" aria-label="Next day">›</button><button class="btn ghost sm" id="plan-close">Close</button></div>
+    <div class="stack" id="plan-body"></div>
+  </div>
+</div>
 <div class="sheet" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="in">
     <div class="grab"></div>
@@ -446,7 +459,7 @@ body.tv.in-session .top .gear{display:none}
           <p class="small">Family <span class="muted">· who shows up at the check-in</span></p>
           <div class="chips" id="o-people"></div>
           <div class="addrow"><input id="o-person" type="text" maxlength="20" placeholder="Add a name" autocomplete="off"><button class="btn ghost sm" id="o-person-add">Add</button></div>
-          <p class="small muted">First name is you. Back check-ins are yours; the others just get a tally.</p>
+          <p class="small muted">Everyone who joins a session gets their own check-in, progress and streak. Tap a name on the Today or Progress screen to switch whose you're looking at; the choice is remembered per device.</p>
         </div>
         <div class="stack" style="gap:8px">
           <p class="small">Music <span class="muted">· opens in Apple Music, keeps playing while you train</span></p>
@@ -1506,7 +1519,19 @@ async function persistProfile(){
   if (storage === "db") { try { await store.doc("profile/main").set(profile); return; } catch(e){} }
   try { localStorage.setItem("coreten.profile", JSON.stringify(profile)); } catch(e){}
 }
+function renderCheckinBacks(){
+  const who = [...$("c-who").querySelectorAll('[aria-pressed="true"]')].map(b=>b.dataset.p); const multi = who.length > 1;
+  $("c-choice").hidden = multi; $("c-backs").hidden = !multi; $("c-q").textContent = multi ? "How does each back feel right now, compared to before?" : "How does your back feel right now, compared to before?";
+  if (!multi) return;
+  const keep = {}; $("c-backs").querySelectorAll("[data-person]").forEach(r=>{ keep[r.dataset.person] = r.querySelector('[aria-pressed="true"]')?.dataset.v || ""; });
+  $("c-backs").innerHTML = who.map(n=>`<div class="row" data-person="${esc(n)}" style="justify-content:space-between;gap:8px"><span style="font-weight:600;min-width:64px">${esc(n)}</span><div class="choice sm">${["better","same","worse"].map(v=>`<button type="button" data-v="${v}" aria-pressed="${keep[n]===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join("")}</div></div>`).join("");
+  $("c-backs").querySelectorAll("[data-person]").forEach(row=>row.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ row.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); })));
+}
 async function saveSession(rec){
+  // Second session on the same day (someone else trained later): merge people and their check-ins instead of overwriting.
+  const prev = sessions[rec.date];
+  if (prev && prev.at !== rec.at) { const who = [...new Set([...sessionWho(prev), ...sessionWho(rec)])]; const backs = { ...(prev.backs||{}), ...(rec.backs||{}) }; if (prev.back && !rec.backs?.[profile.people[0]]) backs[profile.people[0]] = prev.back;
+    rec = { ...prev, ...rec, who, backs, back: backs[profile.people[0]] || "", note: rec.note || prev.note || "", secs: Math.max(prev.secs||0, rec.secs||0) }; }
   sessions[rec.date] = rec;
   try { await persistSession(rec); } finally { scheduleSync(); }
   return true;
@@ -1588,6 +1613,34 @@ async function syncNow(reason){
     setSyncStatus("Sync failed · " + m, true); if (reason === "manual") toast("Sync failed · " + m);
   } finally { syncing = false; if (syncAgain) { syncAgain = false; scheduleSync(); } }
 }
+/* ---- Plan for any day: past days show what was logged, today and future days show the projected session (A/B alternates per
+   session done in the block; a rest day shows the session that would be next if you train anyway). ---- */
+function planFor(k){
+  const today = todayKey(); const rest = isRestKey(k); const s = sessions[k];
+  if (s) return { kind: "done", rest, block: s.block, day: s.day, rec: s };
+  if (k < today) return { kind: "missed", rest };
+  // count training days from today up to k that aren't logged yet; today's own session counts if it isn't done
+  let n = blockSessions(), block = profile.block; let kk = today, idx = 0;
+  while (kk <= k) { if (!isRestKey(kk) || kk === k) { if (kk === k) { idx = n; break; } n++; } kk = addDays(kk, 1); }
+  while (idx >= SESSIONS_TO_ADVANCE && block < 4) { idx -= SESSIONS_TO_ADVANCE; block++; }
+  return { kind: k === today ? "today" : "future", rest, block, day: idx % 2 === 0 ? "A" : "B", projected: block !== profile.block };
+}
+let planKey = "";
+function openPlan(k){
+  planKey = k; const P = planFor(k); const dt = new Date(k+"T12:00:00"); const B = BLOCKS[P.block ? P.block-1 : profile.block-1]; const S = P.day ? B[P.day] : null;
+  const title = `${DOW_SHORT[dt.getDay()]} · ${MONTHS[dt.getMonth()].slice(0,3)} ${dt.getDate()}${k===todayKey()?" · today":""}`;
+  $("plan-title").textContent = title;
+  let head = "";
+  if (P.kind === "done") head = `<p class="small"><b>Done</b> · ${esc(sessionWho(P.rec).join(", "))}${P.rec.secs?` · ${Math.round(P.rec.secs/60)} min`:""}${P.rec.note?`<br><span class="muted">${esc(P.rec.note)}</span>`:""}</p>`;
+  else if (P.kind === "missed") head = `<p class="small muted">${P.rest ? "Rest day. " : ""}No session logged.</p>`;
+  else head = `<p class="small">${P.rest ? "<b>Rest day.</b> Nothing planned; if you train anyway, this is the next session." : P.kind === "today" ? "<b>Today's session.</b>" : "<b>Planned.</b> Assumes you do every session between now and then."}${P.projected ? ` <span class="muted">Projected into Block ${P.block} · advance it from the Blocks tab first.</span>` : ""}</p>`;
+  const total = S ? S.steps.reduce((a,x)=>a+x[1],0) : 0;
+  $("plan-body").innerHTML = head + (S ? `<div class="row" style="justify-content:space-between"><span class="eyebrow">Block ${P.block} · ${S.title}</span><span class="pill num">${fmtClock(total)}</span></div><p class="small muted">${esc(S.desc)}</p>
+    <div class="steps">${S.steps.map(([ek,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[ek].name}</div><div class="d">${EX[ek].dose}</div></div><button class="info" data-info="${ek}" aria-label="How to do ${EX[ek].name}">i</button></div>`).join("")}</div>` : "");
+  $("plan-body").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
+  $("plan").hidden = false; document.body.style.overflow = "hidden";
+}
+function closePlan(){ $("plan").hidden = true; document.body.style.overflow = ""; }
 function closeSettings(){ $("settings").hidden = true; document.body.style.overflow = ""; }
 function renderSettings(){ setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token || !!window.claude || !/^https?:$/.test(location.protocol); }
 // One-time setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
@@ -1627,6 +1680,18 @@ async function pasteSyncCode(){
 
 /* ============================ DERIVED ============================ */
 function blockSessions(){ return Object.values(sessions).filter(s => s.block === profile.block).length; }
+/* ---- People. One session record per date is the family's session; `who` lists everyone in it, `backs` holds each person's
+   back check-in. A record with no `who` (logged before the roster existed) belongs to the first person. ---- */
+function sessionWho(s){ return Array.isArray(s.who) && s.who.length ? s.who : [profile.people[0]]; }
+function sessionBack(s, name){ if (s.backs && s.backs[name] !== undefined) return s.backs[name] || ""; return name === profile.people[0] ? (s.back || "") : ""; }
+let viewAs = ""; try { viewAs = localStorage.getItem("coreten.viewAs") || ""; } catch(e){}
+function viewer(){ return profile.people.includes(viewAs) ? viewAs : profile.people[0]; }
+function setViewer(n){ viewAs = n; try { localStorage.setItem("coreten.viewAs", n); } catch(e){} renderAll(); }
+function didSession(k, name){ const s = sessions[k]; return !!s && sessionWho(s).includes(name || viewer()); }
+function personSessions(name){ const n = name || viewer(); return Object.values(sessions).filter(s => sessionWho(s).includes(n)); }
+function personChips(id){ const el = $(id); if (!el) return; el.hidden = profile.people.length < 2; if (el.hidden) { el.innerHTML = ""; return; }
+  const v = viewer(); el.innerHTML = `<span class="small muted" style="align-self:center">Showing</span>` + profile.people.map(n=>`<button type="button" class="chip sm" data-v="${esc(n)}" aria-pressed="${n===v}">${esc(n)}</button>`).join("");
+  el.querySelectorAll("[data-v]").forEach(b=>b.addEventListener("click", ()=>setViewer(b.dataset.v))); }
 function weekOfBlock(){ const ms = new Date(todayKey()+"T12:00:00") - new Date(profile.blockStart+"T12:00:00"); return Math.max(1, Math.floor(ms/864e5/7)+1); }
 function todayDay(){ // alternate A/B by count of sessions in this block
   return blockSessions() % 2 === 0 ? "A" : "B";
@@ -1649,8 +1714,8 @@ function nextTrainingLabel(){
 function streak(){
   // Rest days are neutral: they neither break nor add to the streak. A missed training day ends it.
   let n = 0, k = todayKey(), guard = 0;
-  if (!sessions[k]) k = addDays(k,-1);
-  while (sessions[k] || isRestKey(k)) { if (sessions[k]) n++; k = addDays(k,-1); if (++guard>2000) break; }
+  if (!didSession(k)) k = addDays(k,-1);
+  while (didSession(k) || isRestKey(k)) { if (didSession(k)) n++; k = addDays(k,-1); if (++guard>2000) break; }
   return n;
 }
 
@@ -1661,13 +1726,14 @@ function renderHome(){
   const B = BLOCKS[profile.block-1]; const day = todayDay(); const S = B[day];
   $("h-block").textContent = `Block ${B.n} · ${B.name}`;
   $("h-week").textContent = `Week ${weekOfBlock()}`;
-  const done = !!sessions[todayKey()]; const rest = isRestToday();
+  const done = didSession(todayKey()); const rest = isRestToday(); personChips("h-viewer");
   $("h-title").textContent = rest && !done ? "Rest day" : S.title;
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
   const wk = weekKeys();
   $("h-month").textContent = weekMonthLabel(wk);
-  $("h-week-dots").innerHTML = wk.map(k=>{ const r = isRestKey(k); const d = !!sessions[k]; const dt = new Date(k+"T12:00:00"); const today = k===todayKey();
-    return `<div class="day"><span class="wd">${DOW_SHORT[dt.getDay()]}</span><div class="dot ${d?"done":""} ${r?"rest":""} ${today?"today":""}" title="${r?"Rest day":""}${d?" · done":""}${today?" · today":""}" aria-label="${DOW_SHORT[dt.getDay()]} ${dt.getDate()}${r?", rest day":""}${d?", done":""}${today?", today":""}">${dt.getDate()}${d?'<i aria-hidden="true">✓</i>':""}</div></div>`; }).join("");
+  $("h-week-dots").innerHTML = wk.map(k=>{ const r = isRestKey(k); const d = didSession(k); const dt = new Date(k+"T12:00:00"); const today = k===todayKey();
+    return `<button type="button" class="day" data-plan="${k}" aria-label="${DOW_SHORT[dt.getDay()]} ${dt.getDate()}${r?", rest day":""}${d?", done":""}${today?", today":""}. Open the plan"><span class="wd">${DOW_SHORT[dt.getDay()]}</span><div class="dot ${d?"done":""} ${r?"rest":""} ${today?"today":""}">${dt.getDate()}${d?'<i aria-hidden="true">✓</i>':""}</div></button>`; }).join("");
+  $("h-week-dots").querySelectorAll("[data-plan]").forEach(b=>b.addEventListener("click", ()=>openPlan(b.dataset.plan)));
   const total = S.steps.reduce((a,s)=>a+s[1],0);
   $("h-steps").innerHTML = S.steps.map(([k,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`).join("");
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
@@ -1684,24 +1750,26 @@ function renderHome(){
 }
 
 function renderProgress(){
-  const list = Object.values(sessions).sort((a,b)=>a.date<b.date?1:-1);
+  personChips("p-people"); const me = viewer();
+  const all = Object.values(sessions).sort((a,b)=>a.date<b.date?1:-1);
+  const list = all.filter(s => sessionWho(s).includes(me));
   $("p-total").textContent = list.length;
   $("p-streak").textContent = streak();
-  const wk = weekKeys(); const wkDone = wk.filter(k=>sessions[k]).length;
+  const wk = weekKeys(); const wkDone = wk.filter(k=>didSession(k, me)).length;
   $("p-week").textContent = `${wkDone}/${weekTarget()}`;
   const last = list.slice(0,21).reverse();
-  const bars = Array.from({length:21},(_,i)=>{ const s = last[i - (21-last.length)]; return `<i class="${s?(s.back||"none"):"none"}" title="${s?s.date+" · "+(s.back||"no check-in"):""}"></i>`; });
+  const bars = Array.from({length:21},(_,i)=>{ const s = last[i - (21-last.length)]; const b = s ? sessionBack(s, me) : ""; return `<i class="${s?(b||"none"):"none"}" title="${s?s.date+" · "+(b||"no check-in"):""}"></i>`; });
   $("p-trend").innerHTML = bars.join("");
-  const c = {better:0,same:0,worse:0}; last.forEach(s=>{ if (s.back) c[s.back]++; });
+  const c = {better:0,same:0,worse:0}; last.forEach(s=>{ const b = sessionBack(s, me); if (b) c[b]++; });
   const n = c.better+c.same+c.worse;
   $("p-trend-text").textContent = n===0 ? "No check-ins yet. After each session you'll rate how your back feels; this is the only measure that matters for the first month." :
-    `${Math.round(100*c.better/n)}% better, ${Math.round(100*c.same/n)}% same, ${Math.round(100*c.worse/n)}% worse. ${c.worse>=2 && last.slice(-2).every(s=>s.back==="worse") ? "Two 'worse' in a row: read the safety note on the Blocks tab before the next session." : c.better/n>=0.5 ? "Trending the right way. Keep the form, don't rush the block." : ""}`;
+    `${Math.round(100*c.better/n)}% better, ${Math.round(100*c.same/n)}% same, ${Math.round(100*c.worse/n)}% worse. ${c.worse>=2 && last.slice(-2).every(s=>sessionBack(s, me)==="worse") ? "Two 'worse' in a row: read the safety note on the Blocks tab before the next session." : c.better/n>=0.5 ? "Trending the right way. Keep the form, don't rush the block." : ""}`;
   // Family tally. A session with no `who` (logged before the roster existed) belongs to the first person.
   const wk7 = new Set(wk); const tally = {}; profile.people.forEach(p=>tally[p]={week:0,total:0});
-  list.forEach(s=>{ const who = Array.isArray(s.who)&&s.who.length ? s.who : [profile.people[0]]; who.forEach(p=>{ if (!tally[p]) tally[p]={week:0,total:0}; tally[p].total++; if (wk7.has(s.date)) tally[p].week++; }); });
+  all.forEach(s=>{ const who = sessionWho(s); who.forEach(p=>{ if (!tally[p]) tally[p]={week:0,total:0}; tally[p].total++; if (wk7.has(s.date)) tally[p].week++; }); });
   $("p-fam-card").hidden = profile.people.length < 2;
   $("p-fam").innerHTML = `<span class="h">Name</span><span class="h">Week</span><span class="h">Total</span>` + Object.entries(tally).map(([p,t])=>`<span class="n">${esc(p)}</span><span class="num">${t.week}/${weekTarget()}</span><span class="num">${t.total}</span>`).join("");
-  $("p-log").innerHTML = list.length ? list.slice(0,30).map(s=>`<div class="r"><span class="num">${s.date.slice(5).replace("-","/")}</span><span>B${s.block}·${s.day} <span class="muted small">${s.note?"· "+esc(s.note):""}</span></span><span class="b ${s.back||""}">${s.back||"–"}</span></div>`).join("") : `<p class="muted small">Your first session will appear here.</p>`;
+  $("p-log").innerHTML = list.length ? list.slice(0,30).map(s=>{ const b = sessionBack(s, me); const others = sessionWho(s).filter(p=>p!==me); return `<div class="r"><span class="num">${s.date.slice(5).replace("-","/")}</span><span>B${s.block}·${s.day} <span class="muted small">${others.length?"with "+esc(others.join(", ")):""}${s.note&&me===profile.people[0]?" · "+esc(s.note):""}</span></span><span class="b ${b||""}">${b||"–"}</span></div>`; }).join("") : `<p class="muted small">${esc(me)}'s first session will appear here.</p>`;
 }
 
 function renderBlocks(){
@@ -1899,7 +1967,8 @@ function finishSession(){
   // Roster: everyone pre-selected when it was a TV session, otherwise just you.
   $("c-who-wrap").hidden = profile.people.length < 2;
   $("c-who").innerHTML = profile.people.map((n,i)=>`<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${(tv||i===0)?"true":"false"}">${esc(n)}</button>`).join("");
-  $("c-who").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>b.setAttribute("aria-pressed", b.getAttribute("aria-pressed")==="true"?"false":"true")));
+  $("c-who").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ b.setAttribute("aria-pressed", b.getAttribute("aria-pressed")==="true"?"false":"true"); renderCheckinBacks(); }));
+  renderCheckinBacks();
   showView("checkin");
 }
 function quitSession(){ clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview"); ses = null; showView("home"); }
@@ -1919,6 +1988,10 @@ function bindUI(){
   $("h-start").addEventListener("click", startSession);
   $("h-tv").addEventListener("click", ()=>{ setTV(true); startSession(); });
   $("o-music-save").addEventListener("click", saveMusic);
+  $("plan-close").addEventListener("click", closePlan);
+  $("plan").addEventListener("click", e=>{ if (e.target === $("plan")) closePlan(); });
+  $("plan-prev").addEventListener("click", ()=>openPlan(addDays(planKey,-1)));
+  $("plan-next").addEventListener("click", ()=>openPlan(addDays(planKey,1)));
   $("gear").addEventListener("click", ()=>{ $("settings").hidden = false; document.body.style.overflow = "hidden"; renderSettings(); });
   $("settings-close").addEventListener("click", closeSettings);
   $("settings").addEventListener("click", e=>{ if (e.target === $("settings")) closeSettings(); });
@@ -1954,9 +2027,12 @@ function bindUI(){
   $("s-quit").addEventListener("click", quitSession);
   $("c-choice").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ $("c-choice").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); }));
   $("c-save").addEventListener("click", async ()=>{
-    const pick = $("c-choice").querySelector('[aria-pressed="true"]')?.dataset.v || "";
-    const who = [...$("c-who").querySelectorAll('[aria-pressed="true"]')].map(b=>b.dataset.p);
-    const rec = { date: todayKey(), block: ses.block, day: ses.day, secs: ses.elapsed, back: pick, note: $("c-note").value.trim().slice(0,300), who: who.length?who:[profile.people[0]], at: new Date().toISOString() };
+    const who = [...$("c-who").querySelectorAll('[aria-pressed="true"]')].map(b=>b.dataset.p); if (!who.length) who.push(profile.people[0]);
+    const backs = {}; const multi = who.length > 1;
+    if (multi) { $("c-backs").querySelectorAll("[data-person]").forEach(row=>{ backs[row.dataset.person] = row.querySelector('[aria-pressed="true"]')?.dataset.v || ""; }); }
+    else backs[who[0]] = $("c-choice").querySelector('[aria-pressed="true"]')?.dataset.v || "";
+    const pick = backs[profile.people[0]] || "";
+    const rec = { date: todayKey(), block: ses.block, day: ses.day, secs: ses.elapsed, back: pick, backs, note: $("c-note").value.trim().slice(0,300), who, at: new Date().toISOString() };
     $("c-save").disabled = true;
     await saveSession(rec);
     $("c-save").disabled = false;
