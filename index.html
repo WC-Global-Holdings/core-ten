@@ -89,9 +89,9 @@ main{flex:1;padding:16px 0 90px}
 
 /* --- session list --- */
 .steps{display:flex;flex-direction:column;gap:0}
-.step{display:grid;grid-template-columns:44px 72px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
-.step .pos{font-family:var(--display);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);line-height:1.25;padding-top:5px}
-@media (max-width:340px){ .step{grid-template-columns:44px 1fr auto} .step .pos{grid-column:1/-1;padding-top:0;order:-1} }
+.step{display:grid;grid-template-columns:44px 88px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.step canvas.pos{width:88px;height:66px;display:block;border-radius:8px;background:var(--panel)}
+@media (max-width:340px){ .step{grid-template-columns:44px 1fr auto} .step canvas.pos{display:none} }
 .step:first-child{border-top:0}
 .step .t{font-family:var(--display);font-size:20px;font-weight:600;color:var(--ink-2)}
 .step .n{font-weight:600}
@@ -572,7 +572,8 @@ const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
   hinge:"Standing · wall", hinge2:"Standing", plank:"Forearms · knees", plank_f:"Forearms · toes", hollow:"On back", rlunge:"Standing", wallsit:"Standing · wall",
   knees:"On back", hipflex:"Half-kneel", child:"Kneeling", figure4:"On back", walk:"Standing" };
-const stepRow = (k, sec) => `<div class="step"><span class="t num">${fmtClock(sec)}</span><span class="pos">${START_POS[k] || ""}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`;
+// Each row carries a small render of the starting position (first keyframe of the move's animation); mountFigures draws it.
+const stepRow = (k, sec) => `<div class="step"><span class="t num">${fmtClock(sec)}</span><canvas class="mq thumb pos" data-key="${k}" data-phase="0" role="img" aria-label="Starting position: ${START_POS[k] || ""}" title="${START_POS[k] || ""}"></canvas><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`;
 
 /* ============================ GUIDE DATA ============================ */
 // Muscle regions on the body map. `view` says which silhouette carries it.
@@ -1697,6 +1698,7 @@ function openPlan(k){
   $("plan-body").innerHTML = head + (S ? `<div class="row" style="justify-content:space-between"><span class="eyebrow">Block ${P.block} · ${S.title}</span><span class="pill num">${fmtClock(total)}</span></div><p class="small muted">${esc(S.desc)}</p>
     <div class="steps">${S.steps.map(([ek,sec])=>stepRow(ek, sec)).join("")}</div>` : "");
   $("plan-body").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
+  mountFigures($("plan-body"), false);
   $("plan").hidden = false; document.body.style.overflow = "hidden";
 }
 function closePlan(){ $("plan").hidden = true; document.body.style.overflow = ""; }
@@ -1825,7 +1827,7 @@ function renderHome(){
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
   renderStrip(); renderJoiners();
   const total = S.steps.reduce((a,s)=>a+s[1],0);
-  $("h-steps").innerHTML = S.steps.map(([k,sec])=>stepRow(k, sec)).join("");
+  $("h-steps").innerHTML = S.steps.map(([k,sec])=>stepRow(k, sec)).join(""); mountFigures($("h-steps"), false);
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
   const btn = $("h-start");
   if (done) { btn.textContent = "Done today · run it again"; btn.classList.add("ghost"); }
