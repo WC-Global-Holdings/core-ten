@@ -1179,7 +1179,9 @@ const H3 = (() => {
   function handRots(model, P) {
     const out = {}; const H = model.hands; if (!H) return out; const hp = P.hands || {};
     for (const [sd, key] of [["l", "L"], ["r", "R"]]) { const h = Object.assign({ ext: 0, pron: 0, curl: 0.15 }, hp[key] || {}); const G = H[sd];
-      out["hand_" + sd] = mul(RA(G.forearm, d2r(h.pron)), RA(G.extAxis, d2r(h.ext)));
+      // The rig's forearm axes are mirrored, so the same pronation value turned the two hands opposite ways: negate it on the left
+      // so one preset (PALM = palm down) means the same thing on both sides.
+      out["hand_" + sd] = mul(RA(G.forearm, d2r(sd === "l" ? -h.pron : h.pron)), RA(G.extAxis, d2r(h.ext)));
       if (h.curl) for (const f of [...FINGERS, "thumb"]) for (const seg of ["01", "02", "03"]) { const n = `${f}_${seg}_${sd}`; if (G[n]) out[n] = RA(G[n], d2r((f === "thumb" ? TCURL[seg] : CURL[seg]) * h.curl)); } }
     return out;
   }
@@ -1397,7 +1399,7 @@ const H3 = (() => {
     canvas.addEventListener("touchstart", down, { passive: true }); canvas.addEventListener("touchmove", move, { passive: false }); canvas.addEventListener("touchend", up);
     return { show, render: kick, toggle: () => { playing = !playing; if (playing) { t0 = performance.now() - paused; kick(); } else paused = performance.now() - t0; return playing; }, stop: () => { playing = false; if (raf) cancelAnimationFrame(raf); raf = 0; } };
   }
-  return { ready, isReady, drawTo, makeViewer, poseOf, lerpPose, movesOf, contactAnchor, _pose: poseModel, _load: loadGLB };
+  return { ready, isReady, drawTo, makeViewer, poseOf, lerpPose, movesOf, contactAnchor, _pose: poseModel, _load: loadGLB, _model: () => model };
 })();
 
 
