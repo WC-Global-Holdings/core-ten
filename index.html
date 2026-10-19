@@ -1745,8 +1745,16 @@ function renderStrip(){
   if (reset || stripScroll < 0) stripScrollToWeek(7 * STRIP_WEEKS); else { el.scrollLeft = stripScroll; stripLabel(); }
 }
 function stripIndex(){ const w = stripDayWidth(); return w ? Math.round($("h-week-dots").scrollLeft / w) : 7 * STRIP_WEEKS; }
+let stripAnim = 0;
 function stripScrollToWeek(i, smooth){ const el = $("h-week-dots"); const w = stripDayWidth(); if (!w) { requestAnimationFrame(()=>stripScrollToWeek(i, smooth)); return; }
-  const left = i * w; if (smooth) el.scrollTo({ left, behavior: "smooth" }); else el.scrollLeft = left; stripScroll = left; stripLabel(); }
+  const left = Math.round(i * w); if (stripAnim) { cancelAnimationFrame(stripAnim); stripAnim = 0; el.style.scrollSnapType = ""; }
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!smooth || reduce || Math.abs(el.scrollLeft - left) < 2) { el.scrollLeft = left; stripScroll = left; stripLabel(); return; }
+  // Drive the scroll by hand: iOS ignores or snaps back on smooth scrollTo() inside a snap container, so snapping is paused for the glide.
+  const from = el.scrollLeft, t0 = performance.now(), D = Math.min(650, 250 + Math.abs(left - from) * 0.4); el.style.scrollSnapType = "none";
+  const step = now => { const u = Math.min(1, (now - t0) / D); const e = u < 0.5 ? 2*u*u : 1 - Math.pow(-2*u + 2, 2) / 2; el.scrollLeft = from + (left - from) * e;
+    if (u < 1) stripAnim = requestAnimationFrame(step); else { stripAnim = 0; el.style.scrollSnapType = ""; el.scrollLeft = left; stripScroll = left; stripLabel(); } };
+  stripAnim = requestAnimationFrame(step); }
 function stripLabel(){ const i = stripIndex(); const keys = Array.from({length:7}, (_,j)=>addDays(stripStart, i + j)); $("h-month").textContent = weekMonthLabel(keys); const t = todayKey(); $("h-today").hidden = keys.includes(t); }
 function renderHome(){
   const B = BLOCKS[profile.block-1]; const day = todayDay(); const S = B[day];
