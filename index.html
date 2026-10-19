@@ -296,6 +296,7 @@ body.tv.in-session .top .gear{display:none}
         <div class="chips" id="h-viewer" hidden></div>
         <div class="row" style="justify-content:space-between;align-items:baseline"><div class="week-month" id="h-month">October 2026</div><button class="btn ghost sm" id="h-today" hidden>Today</button></div>
         <div class="week" id="h-week-dots" aria-label="Calendar. Swipe sideways for other weeks"></div>
+        <div class="chips" id="h-join" hidden></div>
         <button class="btn" id="h-start">Start today's 10 minutes</button>
         <p class="small muted" id="h-status"></p>
       </div>
@@ -458,10 +459,15 @@ body.tv.in-session .top .gear{display:none}
           <p class="small muted">Changes the week strip and the "this week" count. Rest days and streaks are unaffected.</p>
         </div>
         <div class="stack" style="gap:8px">
-          <p class="small">Family <span class="muted">· who shows up at the check-in</span></p>
+          <p class="small">You</p>
+          <div class="addrow"><input id="o-me" type="text" maxlength="20" placeholder="Your name" autocomplete="given-name"><button class="btn ghost sm" id="o-me-save">Save</button></div>
+          <p class="small muted" id="o-me-note">Your sessions, check-ins and streak are filed under this name. Renaming keeps your history.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <p class="small">Family <span class="muted">· people who may join you</span></p>
           <div class="chips" id="o-people"></div>
           <div class="addrow"><input id="o-person" type="text" maxlength="20" placeholder="Add a name" autocomplete="off"><button class="btn ghost sm" id="o-person-add">Add</button></div>
-          <p class="small muted">Everyone who joins a session gets their own check-in, progress and streak. Tap a name on the Today or Progress screen to switch whose you're looking at; the choice is remembered per device.</p>
+          <p class="small muted">Before a session, tick who's training with you on the Today screen; you can adjust it at the check-in too. Everyone who joins gets their own check-in, progress and streak.</p>
         </div>
         <div class="stack" style="gap:8px">
           <p class="small">Music <span class="muted">· opens in Apple Music, keeps playing while you train</span></p>
@@ -1768,7 +1774,7 @@ function renderHome(){
   const done = didSession(todayKey()); const rest = isRestToday(); personChips("h-viewer");
   $("h-title").textContent = rest && !done ? "Rest day" : S.title;
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
-  renderStrip();
+  renderStrip(); renderJoiners();
   const total = S.steps.reduce((a,s)=>a+s[1],0);
   $("h-steps").innerHTML = S.steps.map(([k,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`).join("");
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
@@ -1825,8 +1831,35 @@ function renderBlocks(){
   $("o-sound").checked = profile.sound!==false;
 }
 function renderPeople(){
-  $("o-people").innerHTML = profile.people.map((n,i)=>`<span class="chip">${esc(n)}${i===0?' <span class="muted small">(you)</span>':''}${profile.people.length>1?`<button class="x" data-rm="${i}" aria-label="Remove ${esc(n)}">×</button>`:""}</span>`).join("");
-  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ profile.people.splice(+b.dataset.rm,1); if (!profile.people.length) profile.people=["Me"]; await saveProfile(); renderAll(); }));
+  if (document.activeElement !== $("o-me")) $("o-me").value = profile.people[0] === "Me" ? "" : profile.people[0];
+  const others = profile.people.slice(1);
+  $("o-people").innerHTML = others.length ? others.map((n,i)=>`<span class="chip">${esc(n)}<button class="x" data-rm="${i+1}" aria-label="Remove ${esc(n)}">×</button></span>`).join("") : `<span class="small muted">No one yet. Add a name to log sessions together.</span>`;
+  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ const gone = profile.people[+b.dataset.rm]; profile.people.splice(+b.dataset.rm,1); joiners.delete(gone); await saveProfile(); renderAll(); }));
+}
+// Renaming the owner rewrites the name inside every saved session so history follows the person.
+async function renameOwner(){
+  const v = $("o-me").value.trim().slice(0,20); if (!v) { toast("Enter your name first"); return; }
+  const old = profile.people[0]; if (v === old) { toast("Already saved"); return; }
+  if (profile.people.slice(1).some(p=>p.toLowerCase()===v.toLowerCase())) { toast(`${v} is already a family member.`); return; }
+  profile.people[0] = v;
+  const changed = [];
+  for (const rec of Object.values(sessions)) { let hit = false;
+    if (Array.isArray(rec.who) && rec.who.includes(old)) { rec.who = rec.who.map(n => n === old ? v : n); hit = true; }
+    if (rec.backs && rec.backs[old] !== undefined) { rec.backs[v] = rec.backs[old]; delete rec.backs[old]; hit = true; }
+    if (hit) changed.push(rec); }
+  if (viewAs === old) { viewAs = v; try { localStorage.setItem("coreten.viewAs", v); } catch(e){} }
+  await saveProfile(); for (const r of changed) await persistSession(r); if (changed.length && storage !== "db") await persistSession(changed[0]);
+  renderAll(); toast(`Saved as ${v}`);
+}
+/* ---- Who's training today: ticked on the Today screen before starting, carried into the session and its check-in. ---- */
+let joiners = new Set(); try { const j = JSON.parse(localStorage.getItem("coreten.joiners") || "null"); if (j && j.date === todayKey()) joiners = new Set(j.names); } catch(e){}
+function saveJoiners(){ try { localStorage.setItem("coreten.joiners", JSON.stringify({ date: todayKey(), names: [...joiners] })); } catch(e){} }
+function renderJoiners(){
+  const el = $("h-join"); el.hidden = profile.people.length < 2; if (el.hidden) return;
+  for (const n of [...joiners]) if (!profile.people.includes(n)) joiners.delete(n);
+  el.innerHTML = `<span class="small muted" style="align-self:center">Training today</span><span class="chip sm" aria-pressed="true" title="That's you">✓ ${esc(profile.people[0])}</span>` +
+    profile.people.slice(1).map(n=>`<button type="button" class="chip sm" data-join="${esc(n)}" aria-pressed="${joiners.has(n)}">${joiners.has(n)?"✓ ":"+ "}${esc(n)}</button>`).join("");
+  el.querySelectorAll("[data-join]").forEach(b=>b.addEventListener("click", ()=>{ const n = b.dataset.join; if (joiners.has(n)) joiners.delete(n); else joiners.add(n); saveJoiners(); renderJoiners(); }));
 }
 async function addPerson(){
   const v = $("o-person").value.trim().slice(0,20); if (!v) return;
@@ -1934,7 +1967,7 @@ function beep(kind){
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
 async function startSession(){
   const B = BLOCKS[profile.block-1]; const day = todayDay();
-  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: profile.block };
+  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: profile.block, who: [profile.people[0], ...profile.people.slice(1).filter(n=>joiners.has(n))] };
   showView("session");
   renderStep();
   clearInterval(tick); tick = setInterval(tickFn, 1000);
@@ -2001,7 +2034,8 @@ function finishSession(){
   $("c-note").value = "";
   // Roster: everyone pre-selected when it was a TV session, otherwise just you.
   $("c-who-wrap").hidden = profile.people.length < 2;
-  $("c-who").innerHTML = profile.people.map((n,i)=>`<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${(tv||i===0)?"true":"false"}">${esc(n)}</button>`).join("");
+  const pre = new Set(ses && ses.who ? ses.who : [profile.people[0]]);
+  $("c-who").innerHTML = profile.people.map((n,i)=>`<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${(i===0||pre.has(n))?"true":"false"}">${esc(n)}</button>`).join("");
   $("c-who").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ b.setAttribute("aria-pressed", b.getAttribute("aria-pressed")==="true"?"false":"true"); renderCheckinBacks(); }));
   renderCheckinBacks();
   showView("checkin");
@@ -2055,6 +2089,8 @@ function bindUI(){
   if (isStandalone()) $("g-pdf-link").hidden = true;
   renderGuide();
   $("o-person").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); addPerson(); } });
+  $("o-me-save").addEventListener("click", renameOwner);
+  $("o-me").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); renameOwner(); } });
   document.body.classList.toggle("tv", tv); $("s-tv").setAttribute("aria-pressed", String(tv));
   $("s-pause").addEventListener("click", ()=>{ if (ses.phase==="preview") return; ses.running=!ses.running; renderClock(); });
   $("s-skip").addEventListener("click", ()=>{ if (ses.phase==="preview") { beginStep(); return; } if (ses.phase==="ready") { ses.phase="work"; ses.remaining=ses.steps[ses.i][1]; renderClock(); } else nextStep(); });
