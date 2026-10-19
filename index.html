@@ -217,6 +217,11 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
 .g-list .k2{color:var(--ink-2)}
 .sheet{position:fixed;inset:0;z-index:30;background:rgba(20,26,33,.45);display:flex;align-items:flex-end;justify-content:center}
 .sheet[hidden]{display:none}
+.top{position:relative}
+.top .gear{position:absolute;right:0;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink-2);display:grid;place-items:center;cursor:pointer}
+.top .gear:hover{color:var(--accent)}
+.top .sub{padding-right:48px}
+body.tv .top .gear{display:none}
 .sheet .in{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:14px max(16px,env(safe-area-inset-left,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
 .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto}
 .sheet .close{position:sticky;top:0;align-self:flex-end}
@@ -247,6 +252,7 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
   <header class="top">
     <h1>Core Ten</h1>
     <span class="sub" id="topsub">10 minutes · back-safe core</span>
+    <button class="gear" id="gear" aria-label="Settings" title="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </header>
 
   <main>
@@ -275,7 +281,7 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
         <span class="eyebrow">Do it together</span>
         <div class="chips" id="h-people"></div>
         <div class="row" style="gap:8px"><button class="btn ghost" id="h-tv" style="flex:1">Start in TV mode</button><a class="btn ghost" id="h-music" href="#" target="_blank" rel="noopener" style="flex:1" hidden>Play music</a></div>
-        <p class="small muted">Mirror this screen to the Apple TV (Control Center → Screen Mirroring) and turn the phone or iPad sideways. Save a playlist link in Options and the Play music button opens it; it keeps playing in the background and the step beeps mix in instead of stopping it. One big timer, everyone on the same step. Add names in Options so each person gets credit at the check-in.</p>
+        <p class="small muted">Mirror this screen to the Apple TV (Control Center → Screen Mirroring) and turn the phone or iPad sideways. Save a playlist link in Settings (gear icon) and the Play music button opens it; it keeps playing in the background and the step beeps mix in instead of stopping it. One big timer, everyone on the same step. Add names in Settings so each person gets credit at the check-in.</p>
         <details>
           <summary>Want a trainer on screen instead? Using Fitness+</summary>
           <p class="small">In Fitness+ on the Apple TV, filter <b>Core → 10 min → Beginner</b>. Two to start with: <a href="https://fitness.apple.com/gb/workout/core-with-kyle/1576597458" target="_blank" rel="noopener">Core with Kyle</a> and <a href="https://fitness.apple.com/ca/workout/core-with-gregg/1643833311" target="_blank" rel="noopener">Core with Gregg</a> (the web preview may ask you to pick a region; the Fitness app itself won't).</p>
@@ -359,37 +365,6 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
     <section class="view stack" id="v-blocks">
       <div class="card stack" id="b-list"></div>
       <div class="card stack">
-        <span class="eyebrow">Options</span>
-        <div>
-          <p class="small" style="margin-bottom:8px">Rest days <span class="muted" id="o-rest-count"></span></p>
-          <div class="days" id="o-rest" role="group" aria-label="Rest days"></div>
-          <p class="small muted" style="margin-top:8px">Rest days don't break the streak and don't count against the week.</p>
-        </div>
-        <div class="stack" style="gap:8px">
-          <p class="small">Family <span class="muted">· who shows up at the check-in</span></p>
-          <div class="chips" id="o-people"></div>
-          <div class="addrow"><input id="o-person" type="text" maxlength="20" placeholder="Add a name" autocomplete="off"><button class="btn ghost sm" id="o-person-add">Add</button></div>
-          <p class="small muted">First name is you. Back check-ins are yours; the others just get a tally.</p>
-        </div>
-        <div class="stack" style="gap:8px">
-          <p class="small">Music <span class="muted">· opens in Apple Music, keeps playing while you train</span></p>
-          <div class="addrow"><input id="o-music" type="url" inputmode="url" placeholder="Paste an Apple Music playlist link" autocomplete="off"><button class="btn ghost sm" id="o-music-save">Save</button></div>
-          <p class="small muted" id="o-music-note">In Music: open a playlist → ••• → Share → Copy Link, then paste it here. Any Apple Music, Spotify or YouTube Music link works; it opens in that app.</p>
-        </div>
-        <div class="stack" style="gap:8px">
-          <p class="small">Sync across devices <span class="muted">· same progress on every phone, tablet and the TV copy</span></p>
-          <div class="addrow"><input id="o-sync-token" type="password" placeholder="GitHub token (Gists: read & write)" autocomplete="off" spellcheck="false"><button class="btn ghost sm" id="o-sync-save">Connect</button></div>
-          <p class="small muted" id="o-sync-note">Uses a private GitHub Gist as the store. Make one fine-grained token with only the <b>Gists: Read and write</b> permission and paste it on each device. The token stays in this browser.</p>
-          <div class="row" id="o-sync-row" hidden><span class="small" id="o-sync-status"></span><button class="btn ghost sm" id="o-sync-now">Sync now</button><button class="btn ghost sm" id="o-sync-off">Disconnect</button></div>
-          <details><summary class="small muted">Move progress by hand instead</summary>
-            <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="o-sync-copy">Copy sync code</button><button class="btn ghost sm" id="o-sync-paste">Paste sync code</button></div>
-            <p class="small muted" style="margin-top:6px">Copy on one device, paste on the other. Newer entries win, nothing is deleted.</p>
-          </details>
-        </div>
-        <label class="chk"><input type="checkbox" id="o-sound" checked> Beep at step changes</label>
-        <button class="btn ghost" id="o-reset-block">Restart current block from week 1</button>
-      </div>
-      <div class="card stack">
         <span class="eyebrow">What this plan is, and isn't</span>
         <p class="small">This is the McGill "Big 3" (curl-up, side plank, bird dog) plus bridges and dead bugs, which is the best-evidenced bodyweight core routine for people with recurring low-back pain. It builds the deep stabilizers that hold your spine in a neutral position, done daily and short, which is exactly how it was designed to be used.</p>
         <p class="small">It will not shrink belly fat by itself. No exercise does that locally. What it does do is tighten the muscle wall under the fat and fix the forward pelvic tilt that pushes the belly out, so you look flatter within weeks even before the fat moves. The fat itself comes off with a modest food deficit and daily walking. Block 4 adds a walking target for that reason.</p>
@@ -421,6 +396,43 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
   </div></nav>
 </div>
 <div class="toast" id="toast" role="status"></div>
+<div class="sheet" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="in">
+    <div class="grab"></div>
+    <div class="row" style="justify-content:space-between"><span class="eyebrow" id="settings-title">Settings</span><button class="btn ghost sm" id="settings-close">Done</button></div>
+    <div class="stack" id="settings-body">
+        <div>
+          <p class="small" style="margin-bottom:8px">Rest days <span class="muted" id="o-rest-count"></span></p>
+          <div class="days" id="o-rest" role="group" aria-label="Rest days"></div>
+          <p class="small muted" style="margin-top:8px">Rest days don't break the streak and don't count against the week.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <p class="small">Family <span class="muted">· who shows up at the check-in</span></p>
+          <div class="chips" id="o-people"></div>
+          <div class="addrow"><input id="o-person" type="text" maxlength="20" placeholder="Add a name" autocomplete="off"><button class="btn ghost sm" id="o-person-add">Add</button></div>
+          <p class="small muted">First name is you. Back check-ins are yours; the others just get a tally.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <p class="small">Music <span class="muted">· opens in Apple Music, keeps playing while you train</span></p>
+          <div class="addrow"><input id="o-music" type="url" inputmode="url" placeholder="Paste an Apple Music playlist link" autocomplete="off"><button class="btn ghost sm" id="o-music-save">Save</button></div>
+          <p class="small muted" id="o-music-note">In Music: open a playlist → ••• → Share → Copy Link, then paste it here. Any Apple Music, Spotify or YouTube Music link works; it opens in that app.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <p class="small">Sync across devices <span class="muted">· same progress on every phone, tablet and the TV copy</span></p>
+          <div class="addrow"><input id="o-sync-token" type="password" placeholder="GitHub token (Gists: read & write)" autocomplete="off" spellcheck="false"><button class="btn ghost sm" id="o-sync-save">Connect</button></div>
+          <p class="small muted" id="o-sync-note">Uses a private GitHub Gist as the store. Make one fine-grained token with only the <b>Gists: Read and write</b> permission and paste it on each device. The token stays in this browser.</p>
+          <div class="row" id="o-sync-row" hidden><span class="small" id="o-sync-status"></span><button class="btn ghost sm" id="o-sync-now">Sync now</button><button class="btn ghost sm" id="o-sync-off">Disconnect</button></div>
+          <div class="row" id="o-sync-share" hidden><button class="btn ghost sm" id="o-sync-link">Set up another device</button><span class="small muted">Copies a one-time link that connects sync on the device that opens it.</span></div>
+          <details><summary class="small muted">Move progress by hand instead</summary>
+            <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="o-sync-copy">Copy sync code</button><button class="btn ghost sm" id="o-sync-paste">Paste sync code</button></div>
+            <p class="small muted" style="margin-top:6px">Copy on one device, paste on the other. Newer entries win, nothing is deleted.</p>
+          </details>
+        </div>
+        <label class="chk"><input type="checkbox" id="o-sound" checked> Beep at step changes</label>
+        <button class="btn ghost" id="o-reset-block">Restart current block from week 1</button>
+    </div>
+  </div>
+</div>
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="in">
     <div class="grab"></div>
@@ -1398,6 +1410,7 @@ let unsub = [];
 
 async function boot(){
   bindUI();
+  const fromLink = importSetupFromHash();
   renderAll();
   try { store = await claude.use("db"); } catch(e){ store = null; }
   if (store) {
@@ -1415,7 +1428,8 @@ async function boot(){
   } else { storage = "local"; loadLocal(); }
   renderAll();
   setSyncStatus(sync.last ? "Last synced " + new Date(sync.last).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
-  if (sync.token) syncNow("boot");
+  if (sync.token) syncNow(fromLink ? "manual" : "boot");
+  if (fromLink) toast("Sync connected from the setup link");
 }
 function loadLocal(){
   try {
@@ -1493,7 +1507,7 @@ async function pullGist(){
 }
 async function pushGist(d){ await gh("/gists/" + sync.gist, { method: "PATCH", body: JSON.stringify({ files: { [SYNC_FILE]: { content: JSON.stringify(d) } } }) }); }
 let syncing = false, syncT = null, syncAgain = false;
-function setSyncStatus(msg, bad){ const el = $("o-sync-status"); if (el) { el.textContent = msg; el.className = "small" + (bad ? " danger" : " muted"); } $("o-sync-row").hidden = !sync.token; }
+function setSyncStatus(msg, bad){ const el = $("o-sync-status"); if (el) { el.textContent = msg; el.className = "small" + (bad ? " danger" : " muted"); } $("o-sync-row").hidden = !sync.token; $("o-sync-share").hidden = !sync.token || !!window.claude || !/^https?:$/.test(location.protocol); }
 function scheduleSync(){ if (!sync.token) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow("auto"), 1500); }
 async function syncNow(reason){
   if (!sync.token) return; if (syncing) { syncAgain = true; return; }
@@ -1512,6 +1526,21 @@ async function syncNow(reason){
     const m = /Failed to fetch|NetworkError|Load failed/.test(e.message) ? "Can't reach GitHub from here (offline, or this page isn't allowed to call it)." : e.message;
     setSyncStatus("Sync failed · " + m, true); if (reason === "manual") toast("Sync failed · " + m);
   } finally { syncing = false; if (syncAgain) { syncAgain = false; scheduleSync(); } }
+}
+function closeSettings(){ $("settings").hidden = true; document.body.style.overflow = ""; }
+function renderSettings(){ setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token || !!window.claude || !/^https?:$/.test(location.protocol); }
+// One-time setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
+function setupLink(){ return location.origin + location.pathname + "#setup=" + btoa(unescape(encodeURIComponent(JSON.stringify({ t: sync.token })))); }
+async function copySetupLink(){
+  const l = setupLink();
+  if (navigator.share) { try { await navigator.share({ title: "Core Ten setup", text: "Open this on the new device to connect Core Ten sync.", url: l }); return; } catch(e){ if (e.name === "AbortError") return; } }
+  try { await navigator.clipboard.writeText(l); toast("Setup link copied · open it on the other device"); } catch(e){ window.prompt("Copy this setup link:", l); }
+}
+function importSetupFromHash(){
+  const m = /[#&]setup=([^&]+)/.exec(location.hash || ""); if (!m) return false;
+  try { history.replaceState(null, "", location.pathname + location.search); } catch(e){}
+  try { const d = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); if (d && typeof d.t === "string" && /^(github_pat_|ghp_)/.test(d.t)) { sync = { token: d.t, gist: "", last: "" }; saveSyncCfg(); return true; } } catch(e){}
+  toast("That setup link didn't work"); return false;
 }
 async function connectSync(){
   const t = $("o-sync-token").value.trim(); if (!t) { toast("Paste a GitHub token first"); return; }
@@ -1792,6 +1821,10 @@ function bindUI(){
   $("h-start").addEventListener("click", startSession);
   $("h-tv").addEventListener("click", ()=>{ setTV(true); startSession(); });
   $("o-music-save").addEventListener("click", saveMusic);
+  $("gear").addEventListener("click", ()=>{ $("settings").hidden = false; document.body.style.overflow = "hidden"; renderSettings(); });
+  $("settings-close").addEventListener("click", closeSettings);
+  $("settings").addEventListener("click", e=>{ if (e.target === $("settings")) closeSettings(); });
+  $("o-sync-link").addEventListener("click", copySetupLink);
   $("o-sync-save").addEventListener("click", connectSync);
   $("o-sync-token").addEventListener("keydown", e => { if (e.key === "Enter") connectSync(); });
   $("o-sync-now").addEventListener("click", () => syncNow("manual"));
