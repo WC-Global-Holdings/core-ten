@@ -89,7 +89,9 @@ main{flex:1;padding:16px 0 90px}
 
 /* --- session list --- */
 .steps{display:flex;flex-direction:column;gap:0}
-.step{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.step{display:grid;grid-template-columns:44px 72px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.step .pos{font-family:var(--display);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);line-height:1.25;padding-top:5px}
+@media (max-width:340px){ .step{grid-template-columns:44px 1fr auto} .step .pos{grid-column:1/-1;padding-top:0;order:-1} }
 .step:first-child{border-top:0}
 .step .t{font-family:var(--display);font-size:20px;font-weight:600;color:var(--ink-2)}
 .step .n{font-weight:600}
@@ -489,7 +491,11 @@ body.tv.in-session .top .gear{display:none}
           <div class="addrow"><input id="o-sync-token" type="password" placeholder="GitHub token (Gists: read & write)" autocomplete="off" spellcheck="false"><button class="btn ghost sm" id="o-sync-save">Connect</button></div>
           <p class="small muted" id="o-sync-note">Uses a private GitHub Gist as the store. Make one fine-grained token with only the <b>Gists: Read and write</b> permission and paste it on each device. The token stays in this browser.</p>
           <div class="row" id="o-sync-row" hidden><span class="small" id="o-sync-status"></span><button class="btn ghost sm" id="o-sync-now">Sync now</button><button class="btn ghost sm" id="o-sync-off">Disconnect</button></div>
-          <div class="row" id="o-sync-share" hidden><button class="btn ghost sm" id="o-sync-link">Set up another device</button><span class="small muted">Copies a one-time link that connects sync on the device that opens it.</span></div>
+          <div class="stack" id="o-sync-share" hidden style="gap:6px">
+            <div class="row"><button class="btn ghost sm" id="o-sync-link">Share setup link</button><span class="small muted">Opens the app on another phone already connected to this family's sync.</span></div>
+            <div class="addrow"><input id="o-sync-url" type="text" readonly spellcheck="false" aria-label="Setup link"><button class="btn ghost sm" id="o-sync-copy-url">Copy</button></div>
+            <p class="small muted">The link carries the sync token, so send it only to family (AirDrop or Messages, not email). Anyone with it can read and write this family's progress.</p>
+          </div>
           <details><summary class="small muted">Move progress by hand instead</summary>
             <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="o-sync-copy">Copy sync code</button><button class="btn ghost sm" id="o-sync-paste">Paste sync code</button></div>
             <p class="small muted" style="margin-top:6px">Copy on one device, paste on the other. Newer entries win, nothing is deleted.</p>
@@ -561,6 +567,12 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
+// Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
+const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
+  birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
+  hinge:"Standing · wall", hinge2:"Standing", plank:"Forearms · knees", plank_f:"Forearms · toes", hollow:"On back", rlunge:"Standing", wallsit:"Standing · wall",
+  knees:"On back", hipflex:"Half-kneel", child:"Kneeling", figure4:"On back", walk:"Standing" };
+const stepRow = (k, sec) => `<div class="step"><span class="t num">${fmtClock(sec)}</span><span class="pos">${START_POS[k] || ""}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`;
 
 /* ============================ GUIDE DATA ============================ */
 // Muscle regions on the body map. `view` says which silhouette carries it.
@@ -1640,7 +1652,7 @@ async function pullGist(){
 }
 async function pushGist(d){ await gh("/gists/" + sync.gist, { method: "PATCH", body: JSON.stringify({ files: { [SYNC_FILE]: { content: JSON.stringify(d) } } }) }); }
 let syncing = false, syncT = null, syncAgain = false;
-function setSyncStatus(msg, bad){ const el = $("o-sync-status"); if (el) { el.textContent = msg; el.className = "small" + (bad ? " danger" : " muted"); } $("o-sync-row").hidden = !sync.token; $("o-sync-share").hidden = !sync.token || !!window.claude || !/^https?:$/.test(location.protocol); }
+function setSyncStatus(msg, bad){ const el = $("o-sync-status"); if (el) { el.textContent = msg; el.className = "small" + (bad ? " danger" : " muted"); } $("o-sync-row").hidden = !sync.token; $("o-sync-share").hidden = !sync.token; if (sync.token && $("o-sync-url")) $("o-sync-url").value = setupLink(); }
 function scheduleSync(){ if (!sync.token) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow("auto"), 1500); }
 async function syncNow(reason){
   if (!sync.token) return; if (syncing) { syncAgain = true; return; }
@@ -1683,15 +1695,19 @@ function openPlan(k){
   else head = `<p class="small">${P.rest ? "<b>Rest day.</b> Nothing planned; if you train anyway, this is the next session." : P.kind === "today" ? "<b>Today's session.</b>" : "<b>Planned.</b> Assumes you do every session between now and then."}${P.projected ? ` <span class="muted">Projected into Block ${P.block} · advance it from the Blocks tab first.</span>` : ""}</p>`;
   const total = S ? S.steps.reduce((a,x)=>a+x[1],0) : 0;
   $("plan-body").innerHTML = head + (S ? `<div class="row" style="justify-content:space-between"><span class="eyebrow">Block ${P.block} · ${S.title}</span><span class="pill num">${fmtClock(total)}</span></div><p class="small muted">${esc(S.desc)}</p>
-    <div class="steps">${S.steps.map(([ek,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[ek].name}</div><div class="d">${EX[ek].dose}</div></div><button class="info" data-info="${ek}" aria-label="How to do ${EX[ek].name}">i</button></div>`).join("")}</div>` : "");
+    <div class="steps">${S.steps.map(([ek,sec])=>stepRow(ek, sec)).join("")}</div>` : "");
   $("plan-body").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
   $("plan").hidden = false; document.body.style.overflow = "hidden";
 }
 function closePlan(){ $("plan").hidden = true; document.body.style.overflow = ""; }
 function closeSettings(){ $("settings").hidden = true; document.body.style.overflow = ""; }
-function renderSettings(){ setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token || !!window.claude || !/^https?:$/.test(location.protocol); }
-// One-time setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
-function setupLink(){ return location.origin + location.pathname + "#setup=" + btoa(unescape(encodeURIComponent(JSON.stringify({ t: sync.token })))); }
+function renderSettings(){ setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token; if (sync.token) $("o-sync-url").value = setupLink(); }
+// Setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
+// Inside claude.ai the page has no shareable address, so the link points at the self-hosted copy of the app.
+const HOSTED_APP = "https://wc-global-holdings.github.io/core-ten/";
+function appBase(){ return (!window.claude && /^https?:$/.test(location.protocol)) ? location.origin + location.pathname : HOSTED_APP; }
+function setupLink(){ return appBase() + "#setup=" + btoa(unescape(encodeURIComponent(JSON.stringify({ t: sync.token })))); }
+async function copySetupUrl(){ const l = setupLink(); try { await navigator.clipboard.writeText(l); toast("Setup link copied"); } catch(e){ $("o-sync-url").select(); toast("Select the link and copy it"); } }
 async function copySetupLink(){
   const l = setupLink();
   if (navigator.share) { try { await navigator.share({ title: "Core Ten setup", text: "Open this on the new device to connect Core Ten sync.", url: l }); return; } catch(e){ if (e.name === "AbortError") return; } }
@@ -1809,7 +1825,7 @@ function renderHome(){
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
   renderStrip(); renderJoiners();
   const total = S.steps.reduce((a,s)=>a+s[1],0);
-  $("h-steps").innerHTML = S.steps.map(([k,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`).join("");
+  $("h-steps").innerHTML = S.steps.map(([k,sec])=>stepRow(k, sec)).join("");
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
   const btn = $("h-start");
   if (done) { btn.textContent = "Done today · run it again"; btn.classList.add("ghost"); }
@@ -2063,7 +2079,7 @@ function prevStep(){ if (ses.i>0) ses.i--; if (tv) { ses.phase="preview"; ses.ru
 function renderStep(){
   const [k,sec] = ses.steps[ses.i]; const e = EX[k];
   $("s-count").textContent = `Step ${ses.i+1} of ${ses.steps.length}`;
-  $("s-name").textContent = e.name; $("s-dose").textContent = `${sec}s · ${e.dose}`;
+  $("s-name").textContent = e.name; $("s-dose").textContent = `${sec}s · ${START_POS[k] ? START_POS[k] + " · " : ""}${e.dose}`;
   $("s-cue").innerHTML = e.cue; $("s-watch").textContent = e.watch; $("s-watch").hidden = !e.watch;
   const nx = ses.steps[ses.i+1]; $("s-next").textContent = nx ? `Next: ${EX[nx[0]].name}` : "Last one.";
   renderSessionFigure(k);
@@ -2132,6 +2148,8 @@ function bindUI(){
   $("settings-close").addEventListener("click", closeSettings);
   $("settings").addEventListener("click", e=>{ if (e.target === $("settings")) closeSettings(); });
   $("o-sync-link").addEventListener("click", copySetupLink);
+  $("o-sync-copy-url").addEventListener("click", copySetupUrl);
+  $("o-sync-url").addEventListener("focus", e=>e.target.select());
   $("o-sync-save").addEventListener("click", connectSync);
   $("o-sync-token").addEventListener("keydown", e => { if (e.key === "Enter") connectSync(); });
   $("o-sync-now").addEventListener("click", () => syncNow("manual"));
