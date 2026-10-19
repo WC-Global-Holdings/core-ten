@@ -569,7 +569,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.19-1427";
+const APP_VERSION = "2026.10.19-2254";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1487,7 +1487,7 @@ const fmtClock = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 const addDays = (k, n) => { const d = new Date(k+"T12:00:00"); d.setDate(d.getDate()+n); return todayKey(d); };
 
 const DEFAULT_REST = [1,3]; // getDay() numbers: Mon, Wed
-let profile = { startDate: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], plans: {}, music: "", sound: true, weekStart: 1 };
+let profile = { startDate: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], roster: {}, plans: {}, music: "", sound: true, weekStart: 1 };
 // Older profiles stored restSunday:boolean. Convert once, in memory; the next save writes restDays and drops the old flag.
 function migrateProfile(p){
   const out = { ...p };
@@ -1499,6 +1499,7 @@ function migrateProfile(p){
   if (!out.people.length) out.people = ["Me"];
   out.music = cleanMusicUrl(out.music);
   out.weekStart = out.weekStart === 0 ? 0 : 1; // 1 = Monday (default), 0 = Sunday
+  if (!out.roster || typeof out.roster !== "object") out.roster = {}; // name -> { added, removed } timestamps, for merging across devices
   // v2: every person has their own plan (block + when it started). Older profiles kept one plan at the top level: it belongs to the first name.
   if (!out.plans || typeof out.plans !== "object") out.plans = {};
   if (out.block && !out.plans[out.people[0]]) out.plans[out.people[0]] = { block: out.block, blockStart: out.blockStart || todayKey() };
@@ -1573,9 +1574,11 @@ async function boot(){
     } catch(e){ storage = "local"; loadLocal(); }
   } else { storage = "local"; loadLocal(); }
   if (normalizeSessions()) { if (storage === "local") try { localStorage.setItem("coreten.sessions", JSON.stringify(sessions)); } catch(e){} }
-  ensureMe(); renderAll();
   setSyncStatus(sync.last ? "Last synced " + new Date(sync.last).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
-  if (sync.token) syncNow(fromLink ? "manual" : "boot");
+  // A phone that doesn't know who it belongs to pulls the family first, so the "who's using this phone?" list is the real roster.
+  if (sync.token && !profile.people.includes(deviceMe)) { toast("Fetching your family's data…"); await syncNow(fromLink ? "manual" : "boot"); }
+  else if (sync.token) syncNow(fromLink ? "manual" : "boot");
+  ensureMe(); renderAll();
   if (fromLink) toast("Sync connected from the setup link");
 }
 function loadLocal(){
@@ -1625,10 +1628,24 @@ function mergeData(a, b){
   if (!b || typeof b !== "object") return { profile: a.profile, sessions: { ...a.sessions } };
   const out = { ...a.sessions };
   for (const [k, v] of Object.entries(b.sessions || {})) { if (!v || typeof v !== "object" || !/^\d{4}-\d{2}-\d{2}(_.+)?$/.test(k)) continue; const l = out[k]; if (!l || String(v.at || "") > String(l.at || "")) out[k] = v; }
-  let prof = a.profile;
-  const pb = b.profile;
-  if (pb && typeof pb === "object" && (!a.profile.updatedAt || String(pb.updatedAt || "") > String(a.profile.updatedAt || ""))) prof = migrateProfile({ ...a.profile, ...pb, restDays: pb.restDays });
-  return { profile: prof, sessions: out };
+  return { profile: mergeProfile(a.profile, b.profile), sessions: out };
+}
+// Profiles merge field by field, not whole: the roster is the union (minus names removed more recently than they were added),
+// each person's plan is kept from whichever side changed it last, and the shared settings follow the newer profile.
+// Whole-profile replacement is what used to let a freshly set-up phone wipe the family list.
+function mergeProfile(pa, pb){
+  if (!pb || typeof pb !== "object") return pa; if (!pa || typeof pa !== "object") return migrateProfile(pb);
+  const A = migrateProfile({ ...pa }), B = migrateProfile({ ...pb });
+  const bNewer = !A.updatedAt || String(B.updatedAt || "") > String(A.updatedAt || ""); const newer = bNewer ? B : A, older = bNewer ? A : B;
+  const out = migrateProfile({ ...older, ...newer, restDays: newer.restDays });
+  // roster
+  const roster = {}; for (const src of [A, B]) for (const [n, r] of Object.entries(src.roster || {})) { const cur = roster[n] || {}; roster[n] = { added: [cur.added, r.added].filter(Boolean).sort().pop(), removed: [cur.removed, r.removed].filter(Boolean).sort().pop() }; }
+  const names = []; const seen = new Set();
+  for (const n of [...newer.people, ...older.people]) { const k = n.toLowerCase(); if (seen.has(k)) continue; seen.add(k); const r = roster[n] || {}; if (r.removed && (!r.added || r.removed > r.added)) continue; names.push(n); }
+  const real = names.filter(n => n !== "Me"); out.people = real.length ? real : (names.length ? names : ["Me"]); out.roster = roster;
+  // plans: per person, the side that stamped it last; an unstamped (lazily created) plan never beats a stamped one
+  out.plans = {}; for (const n of out.people) { const x = A.plans[n], y = B.plans[n]; if (x && y) out.plans[n] = (String(y.updatedAt || "") > String(x.updatedAt || "")) ? y : x; else out.plans[n] = x || y; }
+  return migrateProfile(out);
 }
 async function applyMerged(m){
   const before = snapshotData();
@@ -1917,13 +1934,14 @@ function renderPeople(){
   $("o-me").placeholder = who === "Me" ? "Your name" : `Rename ${who}`;
   const others = profile.people.filter(n => n !== who);
   $("o-people").innerHTML = others.length ? others.map(n=>`<span class="chip">${esc(n)}<button class="x" data-rm="${esc(n)}" aria-label="Remove ${esc(n)}">×</button></span>`).join("") : `<span class="small muted">No one yet. Add a name to train together, or so they can use the app on their own phone.</span>`;
-  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ const gone = b.dataset.rm; if (personSessions(gone).length && !confirm(`Remove ${gone}? Their ${personSessions(gone).length} logged session(s) stay on record but won't show anywhere until the name is added back.`)) return; profile.people = profile.people.filter(n=>n!==gone); joiners.delete(gone); await saveProfile(); renderAll(); }));
+  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ const gone = b.dataset.rm; if (personSessions(gone).length && !confirm(`Remove ${gone}? Their ${personSessions(gone).length} logged session(s) stay on record but won't show anywhere until the name is added back.`)) return; rosterRemove(gone); joiners.delete(gone); await saveProfile(); renderAll(); }));
 }
 // Renaming rewrites the name inside every saved record (and the plan) so history follows the person.
 async function renamePerson(old, v){
   if (profile.people.some(p=>p!==old && p.toLowerCase()===v.toLowerCase())) { toast(`${v} is already on the list.`); return false; }
   profile.people = profile.people.map(n => n === old ? v : n);
-  if (profile.plans[old]) { profile.plans[v] = profile.plans[old]; delete profile.plans[old]; }
+  profile.roster[v] = { ...(profile.roster[v] || {}), added: new Date().toISOString() }; profile.roster[old] = { ...(profile.roster[old] || {}), removed: new Date().toISOString() };
+  if (profile.plans[old]) { profile.plans[v] = profile.plans[old]; delete profile.plans[old]; } stampPlan(v);
   const changed = [], removed = [];
   for (const [k, rec] of Object.entries(sessions)) { let hit = false;
     if (rec.name === old) { delete sessions[k]; removed.push(k); rec.name = v; sessions[sid(rec.date, v)] = rec; hit = true; }
@@ -1957,7 +1975,7 @@ async function whoAddNew(){
   const existing = profile.people.find(p=>p.toLowerCase()===v.toLowerCase());
   if (existing) { setMe(existing); closeWho(); return; }
   if (profile.people.length === 1 && profile.people[0] === "Me") { await renamePerson("Me", v); }
-  else { if (profile.people.length >= 8) { toast("Eight is plenty."); return; } profile.people.push(v); await saveProfile(); }
+  else { if (profile.people.length >= 8) { toast("Eight is plenty."); return; } rosterAdd(v); await saveProfile(); }
   setMe(v); closeWho(); toast(`Hi ${v}`);
 }
 /* ---- Who's training today: ticked on the Today screen before starting, carried into the session and its check-in. ---- */
@@ -1971,11 +1989,14 @@ function renderJoiners(){
     profile.people.filter(n=>n!==who).map(n=>`<button type="button" class="chip sm" data-join="${esc(n)}" aria-pressed="${joiners.has(n)}">${joiners.has(n)?"✓ ":"+ "}${esc(n)}</button>`).join("");
   el.querySelectorAll("[data-join]").forEach(b=>b.addEventListener("click", ()=>{ const n = b.dataset.join; if (joiners.has(n)) joiners.delete(n); else joiners.add(n); saveJoiners(); renderJoiners(); }));
 }
+function rosterAdd(v){ profile.roster = profile.roster || {}; profile.people.push(v); profile.roster[v] = { ...(profile.roster[v] || {}), added: new Date().toISOString() }; }
+function rosterRemove(v){ profile.roster = profile.roster || {}; profile.people = profile.people.filter(n => n !== v); profile.roster[v] = { ...(profile.roster[v] || {}), removed: new Date().toISOString() }; }
+function stampPlan(name){ plan(name).updatedAt = new Date().toISOString(); }
 async function addPerson(){
   const v = $("o-person").value.trim().slice(0,20); if (!v) return;
   if (profile.people.some(p=>p.toLowerCase()===v.toLowerCase())) { toast(`${v} is already on the list.`); return; }
   if (profile.people.length >= 8) { toast("Eight is plenty."); return; }
-  profile.people.push(v); $("o-person").value = ""; await saveProfile(); renderAll();
+  rosterAdd(v); $("o-person").value = ""; await saveProfile(); renderAll();
 }
 const DAY_LABELS = [["M","Mon"],["T","Tue"],["W","Wed"],["T","Thu"],["F","Fri"],["S","Sat"],["S","Sun"]]; // Mon-first display
 function renderRestToggles(){
@@ -1991,7 +2012,7 @@ async function toggleRest(dow){
   const pl = plan(me()); const set = new Set(pl.restDays);
   if (set.has(dow)) set.delete(dow); else set.add(dow);
   if (set.size === 7) { toast("Keep at least one training day."); return; }
-  pl.restDays = [...set].sort();
+  pl.restDays = [...set].sort(); stampPlan(me());
   await saveProfile(); renderAll();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -2056,7 +2077,7 @@ function printGuide(){
 }
 
 async function setBlock(n){
-  const pl = plan(me()); pl.block = n; pl.blockStart = todayKey(); await saveProfile(); renderAll(); showView("home"); toast(`Block ${n} · ${BLOCKS[n-1].name} starts today`);
+  const pl = plan(me()); pl.block = n; pl.blockStart = todayKey(); stampPlan(me()); await saveProfile(); renderAll(); showView("home"); toast(`Block ${n} · ${BLOCKS[n-1].name} starts today`);
 }
 
 /* ============================ SESSION ============================ */
@@ -2230,7 +2251,7 @@ function bindUI(){
   $("o-update").addEventListener("click", ()=>checkForUpdate(true));
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") checkForUpdate(false); });
   setTimeout(()=>checkForUpdate(false), 1500);
-  $("o-reset-block").addEventListener("click", async ()=>{ plan(me()).blockStart = todayKey(); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
+  $("o-reset-block").addEventListener("click", async ()=>{ plan(me()).blockStart = todayKey(); stampPlan(me()); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
   window.addEventListener("resize", ()=>{ if (sfig && sfig.render) sfig.render(); });
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && sync.token && (!sync.last || Date.now() - new Date(sync.last) > 60000)) syncNow("auto"); });
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && ses && wake===null) navigator.wakeLock?.request("screen").then(w=>wake=w).catch(()=>{}); });
