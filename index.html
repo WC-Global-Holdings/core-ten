@@ -767,7 +767,7 @@ function guideHTML(key, opts = {}){
   const e = EX[key], g = GUIDE[key]; if (!g) return "";
   const mv = (typeof MQ !== "undefined" && MQ.MOVES && MQ.MOVES[key]) || null;
   const figure = opts.frames && mv
-    ? `<div class="g-frames">${mv.map((f,i)=>`<figure class="frame"><canvas class="mq frame" data-key="${key}" data-phase="${i}" aria-label="${e.name}, ${i?"end":"start"} position"></canvas><figcaption><b>${i?"End":"Start"}</b> ${f.l}</figcaption></figure>`).join("")}</div>`
+    ? `<div class="g-frames"${mv.length > 2 ? ` style="grid-template-columns:repeat(${mv.length},1fr)"` : ""}>${mv.map((f,i)=>{ const nm = i === 0 ? "Start" : i === mv.length - 1 ? "End" : "Then"; return `<figure class="frame"><canvas class="mq frame" data-key="${key}" data-phase="${i}" aria-label="${e.name}, ${nm.toLowerCase()} position"></canvas><figcaption><b>${nm}</b> ${f.l}</figcaption></figure>`; }).join("")}</div>`
     : `<div class="mqwrap"><canvas class="mq" data-key="${key}" aria-label="${e.name}: translucent figure moving between start and end positions, working muscles highlighted"></canvas><span class="mqhint">Drag to turn</span></div>
        ${mv ? `<div class="g-phase"><button class="btn ghost sm" data-play aria-label="Pause or play the movement">❚❚</button><span class="g-phase-l" aria-live="polite">${mv[0].l}</span></div>` : ""}`;
   const maps = ["map_front","map_back"].map((k,i)=>`<figure class="map"><canvas class="mq map" data-key="${k}" data-ex="${key}" aria-label="${i?"Back":"Front"} view with working muscles highlighted"></canvas><figcaption>${i?"Back":"Front"}</figcaption></figure>`).join("");
@@ -801,7 +801,7 @@ function mountFigures(root, interactive){
       c._viewer = H3.makeViewer(c, (l) => { if (lab) lab.textContent = l; }); c._viewer.show(c.dataset.key, g.primary, g.secondary);
       if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", () => { const on = c._viewer.toggle(); btn.textContent = on ? "❚❚" : "▶"; }); }
       return; }
-    const o = optsOf(c); if (c.dataset.phase !== undefined) { const mv = H3.movesOf(c.dataset.key); o.pose = H3.poseOf(c.dataset.key, +c.dataset.phase); if (mv) o.fitPoses = [mv[0].p, mv[1].p]; }
+    const o = optsOf(c); if (c.dataset.phase !== undefined) { const mv = H3.movesOf(c.dataset.key); o.pose = H3.poseOf(c.dataset.key, +c.dataset.phase); if (mv) o.fitPoses = mv.map(f => f.p); }
     H3.drawTo(c, c.dataset.key, g.primary, g.secondary, 0, isDark(), o); };
   if (typeof H3 !== "undefined" && H3.isReady()) { cs.forEach(drawH3); return Promise.resolve(true); }
   cs.forEach(drawMQ);
@@ -896,6 +896,13 @@ const MQ = (() => {
   const sideDownK = { ...sideBase, tilt: -34, shR: { abd: 60, flex: 0 }, hipL: { flex: 12, abd: 12 }, hipR: { flex: 6, abd: -41 }, knL: 90, knR: 90, contact: ["lowerarm_r", "pelvis", "calf_r"] };
   const sideUpK   = { ...sideBase, tilt: -14, bend: -10, shR: { abd: 70, flex: 0 }, hipL: { flex: 0, abd: -16 }, hipR: { flex: 0, abd: 0 }, knL: 90, knR: 90, contact: ["lowerarm_r", "calf_r"] };
   const sidePlank = sideUpF;
+  // Swap left/right joints (abd/flex signs are per side in the rig, so a plain swap mirrors the pose).
+  function mirrorLR(P){ const o = { ...P }; const sw = (a, b) => { const t = o[a]; if (P[b] !== undefined) o[a] = P[b]; else delete o[a]; if (t !== undefined) o[b] = t; else delete o[b]; };
+    sw("shL","shR"); sw("elL","elR"); sw("hipL","hipR"); sw("knL","knR"); sw("anL","anR");
+    if (P.hands) o.hands = { L: P.hands.R, R: P.hands.L };
+    if (P.bend) o.bend = -P.bend; // lateral spine bend is body-relative, so it flips with the sides
+    if (P.contact) o.contact = P.contact.map(c => /_l$/.test(c) ? c.replace(/_l$/, "_r") : c.replace(/_r$/, "_l"));
+    return o; }
   const POSES3 = {
     catcow:  { ...allFours, y: 0.52, spine: -14, neck: 45 },
     tilt:    { ...onBack },
@@ -938,7 +945,11 @@ const MQ = (() => {
     curlup2: [{ l: "Set up · hands under the low back", p: { ...S.curlup2, neck: 0, spine: 0, shL: { abd: -40, flex: -40 }, shR: { abd: -40, flex: -40 }, elL: 60, elR: 60 } }, { l: "Lift · elbows off the floor", p: { ...S.curlup2, neck: 32, spine: 9, shL: { abd: -28, flex: -12 }, shR: { abd: -28, flex: -12 }, elL: 95, elR: 95 } }],
     splank_k:[{ l: "Hips on the floor", p: { ...sideDownK } }, { l: "Hips up · one straight line", p: { ...sideUpK } }],
     splank_f:[{ l: "Hips on the floor", p: { ...sideDownF } }, { l: "Hips up · ankle to head", p: { ...sideUpF } }],
-    splank_r:[{ l: "Side plank", p: { ...sideUpF } }, { l: "Roll through a front plank", p: { ...S.plank_f, hands: { L: PALM, R: PALM } } }],
+    // The roll is one continuous rotation about the body's long axis, so every frame stays in the "side" frame and only `roll` changes:
+    // 0° = right side plank, 90° = front plank on both forearms, 180° = left side plank. Three keyframes; the viewer plays them in sequence and back.
+    splank_r:[{ l: "Side plank · right forearm", p: { ...sideUpF } },
+              { l: "Roll · both forearms, hips level", p: { ...S.plank_f, orient: "side", roll: 90, hands: { L: PALM, R: PALM }, contact: ["lowerarm_l", "lowerarm_r", "ball_l", "ball_r"] } },
+              { l: "Side plank · left forearm", p: { ...mirrorLR(sideUpF), roll: 180, contact: ["lowerarm_l", "foot_l"] } }],
     birddog: [{ l: "All fours · back flat", p: { ...allFours } }, { l: "Reach arm and opposite leg", p: { ...S.birddog } }],
     birddog2:[{ l: "Reach", p: { ...S.birddog } }, { l: "Sweep elbow to knee", p: { ...S.birddog, shL: { flex: 35 }, elL: 135, hipR: { flex: 125 }, knR: 125, anR: -20, spine: -6, hands: { L: FIST, R: FLAT } } }],
     bridge:  [{ l: "Lie down · feet flat", p: { ...onBack } }, { l: "Squeeze and lift", p: { ...S.bridge } }],
@@ -1183,8 +1194,12 @@ const H3 = (() => {
     const J = bodyJoints(model);
     const named = poses.map(P => (P.contact || []).map(n => model.byName[n]).filter(i => i !== undefined));
     const sets = poses.map((P, k) => { const W = poseModel(model, P, 0, null).world; const ys = J.map(ni => W[ni][13]); const min = Math.min(...ys); return { W, low: new Set(named[k].length ? named[k] : J.filter((ni, kk) => ys[kk] < min + 0.07)) }; });
-    let joints = model.joints.filter(ni => sets.every(s => s.low.has(ni))); if (!joints.length) joints = [...sets[0].low];
+    let joints = model.joints.filter(ni => sets.every(s => s.low.has(ni)));
+    // No joint stays down through the whole move (a roll, a walk): ground whatever is lowest in each pose instead, with the
+    // horizontal anchor taken from the first pose's contacts so the figure still doesn't slide.
+    const perPose = !joints.length; if (perPose) joints = [...sets[0].low];
     const W = sets[0].W; let cx = 0, cz = 0; joints.forEach(ni => { cx += W[ni][12]; cz += W[ni][14]; }); cx /= joints.length; cz /= joints.length;
+    if (perPose) { const all = J; let ax = 0, az = 0; all.forEach(ni => { ax += W[ni][12]; az += W[ni][14]; }); return { joints: null, cx: ax / all.length, cz: az / all.length, margin: MARGIN[poses[0].orient || "stand"] || 0.03 }; }
     return { joints, cx, cz, margin: MARGIN[poses[0].orient || "stand"] || 0.03 };
   }
   function poseModel(model, P, yaw, anchor) {
@@ -1261,8 +1276,8 @@ const H3 = (() => {
   const lookAt = (eye, at) => { const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]], dot = (a, b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2], cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]], norm = a => { const l = Math.hypot(...a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
     const f = norm(sub(at, eye)), r = norm(cross(f, [0,1,0])), u = cross(r, f); return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u[2],-f[2],0, -dot(r,eye),-dot(u,eye),dot(f,eye),1]; };
   const persp = (fov, asp, n, f) => { const t = 1 / Math.tan(fov / 2); return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; };
-  const CAM = { stand: [[2.4, 1.4, 3.4], [0, 0.82, 0]], back: [[0.95, 1.7, 2.6], [0, 0.3, 0]], prone: [[0.75, 1.6, 2.7], [0, 0.35, 0]], side: [[-1.7, 0.8, 2.4], [0.05, 0.25, 0]], profile: [[3.0, 1.3, 0.9], [0, 0.4, 0]], front: [[0, 0.9, 4.2], [0, 0.84, 0]], rear: [[0, 0.9, -4.2], [0, 0.84, 0]] };
-  const CAM_OVERRIDE = { child: "profile", hipflex: "profile", rlunge: "profile", splank_r: "side", map_front: "front", map_back: "rear" };
+  const CAM = { stand: [[2.4, 1.4, 3.4], [0, 0.82, 0]], back: [[0.95, 1.7, 2.6], [0, 0.3, 0]], prone: [[0.75, 1.6, 2.7], [0, 0.35, 0]], side: [[-1.7, 0.8, 2.4], [0.05, 0.25, 0]], profile: [[3.0, 1.3, 0.9], [0, 0.4, 0]], front: [[0, 0.9, 4.2], [0, 0.84, 0]], rear: [[0, 0.9, -4.2], [0, 0.84, 0]], roll: [[-0.5, 1.0, 3.3], [0, 0.28, 0]] };
+  const CAM_OVERRIDE = { child: "profile", hipflex: "profile", rlunge: "profile", splank_r: "roll", map_front: "front", map_back: "rear" };
   const COL = { light: { fill: [0.74, 0.86, 0.9], rim: [0.42, 0.58, 0.68], alpha: 0.17, rimK: 1.0, m1: [0.05, 0.62, 0.48], m1g: [0.35, 1.0, 0.82], m2: [0.2, 0.45, 0.8], m2g: [0.5, 0.75, 1.0], floor: "rgba(28,36,48,0.10)", label: "#0f6b5c" },
                 dark:  { fill: [0.55, 0.78, 0.86], rim: [0.78, 0.9, 0.95], alpha: 0.14, rimK: 0.9, m1: [0.24, 0.9, 0.75], m1g: [0.5, 1.0, 0.9], m2: [0.42, 0.68, 1.0], m2g: [0.6, 0.8, 1.0], floor: "rgba(0,0,0,0.28)", label: "#4cc3a6" } };
 
@@ -1361,22 +1376,26 @@ const H3 = (() => {
   function makeViewer(canvas, onPhase) {
     let key = "walk", pri = [], sec = [], yaw = 0, dragging = false, lx = 0, raf = 0, t0 = 0, playing = true, lastT = -1;
     const dark = () => { const r = document.documentElement; const th = r.getAttribute("data-theme"); return th === "dark" || (!th && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches); };
-    const PERIOD = 3600, HOLD = 0.22; // ms per start→end→start cycle; fraction held at each end
+    // Keyframes play 0→1→…→n-1 and back; each move takes SEG ms with a HOLD ms pause on every keyframe (2 frames: the old 3.6 s cycle).
+    const SEG = 1400, HOLD = 400;
     const ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
-    const phaseT = now => { const u = ((now - t0) % PERIOD) / PERIOD; const tri = u < 0.5 ? u * 2 : 2 - u * 2; const s = Math.min(1, Math.max(0, (tri - HOLD) / (1 - 2 * HOLD))); return ease(s); };
-    const frame = () => { raf = 0; const now = performance.now(); const mv = movesOf(key); const t = mv ? phaseT(now) : 1; const pose = mv ? lerpPose(mv[0].p, mv[1].p, t) : poseOf(key, 1);
-      drawTo(canvas, key, pri, sec, yaw, dark(), { labels: true, fit: true, pose, fitPoses: mv ? [mv[0].p, mv[1].p] : null, anchor });
-      if (mv && onPhase) { const ph = t < 0.5 ? 0 : 1; if (ph !== lastT) { lastT = ph; onPhase(mv[ph].l, ph); } }
+    const where = (now, n) => { const segs = Math.max(1, 2 * (n - 1)), L = SEG + HOLD; const u = (now - t0) % (segs * L); const k = Math.floor(u / L); const w = u - k * L;
+      const a = k < n - 1 ? k : 2 * (n - 1) - k, b = k < n - 1 ? a + 1 : a - 1; const s = w < HOLD ? 0 : ease((w - HOLD) / SEG); return { a, b, s }; };
+    let paused = 0;
+    const frame = () => { raf = 0; const now = performance.now(); const mv = movesOf(key); let pose, ph = 0;
+      if (mv) { const { a, b, s } = where(now, mv.length); pose = lerpPose(mv[a].p, mv[b].p, s); ph = s < 0.5 ? a : b; } else pose = poseOf(key, 1);
+      drawTo(canvas, key, pri, sec, yaw, dark(), { labels: true, fit: true, pose, fitPoses: mv ? mv.map(f => f.p) : null, anchor });
+      if (mv && onPhase && ph !== lastT) { lastT = ph; onPhase(mv[ph].l, ph); }
       if (playing && mv && canvas.isConnected) raf = requestAnimationFrame(frame); };
     const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
     let anchor = undefined;
-    const show = (k, p, s) => { key = k; pri = p || []; sec = s || []; yaw = 0; t0 = performance.now(); lastT = -1; playing = true; const mv = movesOf(k); anchor = contactAnchor(model, mv ? [mv[0].p, mv[1].p] : [poseOf(k, 1)]); kick(); };
+    const show = (k, p, s) => { key = k; pri = p || []; sec = s || []; yaw = 0; t0 = performance.now(); lastT = -1; playing = true; const mv = movesOf(k); anchor = contactAnchor(model, mv ? mv.map(f => f.p) : [poseOf(k, 1)]); kick(); };
     const down = e => { dragging = true; lx = e.touches ? e.touches[0].clientX : e.clientX; };
     const move = e => { if (!dragging) return; const x = e.touches ? e.touches[0].clientX : e.clientX; yaw += (x - lx) * 0.012; lx = x; kick(); if (e.cancelable && e.touches) e.preventDefault(); };
     const up = () => { dragging = false; };
     canvas.addEventListener("mousedown", down); window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
     canvas.addEventListener("touchstart", down, { passive: true }); canvas.addEventListener("touchmove", move, { passive: false }); canvas.addEventListener("touchend", up);
-    return { show, render: kick, toggle: () => { playing = !playing; if (playing) { t0 = performance.now() - (lastT === 1 ? PERIOD / 2 : 0); kick(); } return playing; }, stop: () => { playing = false; if (raf) cancelAnimationFrame(raf); raf = 0; } };
+    return { show, render: kick, toggle: () => { playing = !playing; if (playing) { t0 = performance.now() - paused; kick(); } else paused = performance.now() - t0; return playing; }, stop: () => { playing = false; if (raf) cancelAnimationFrame(raf); raf = 0; } };
   }
   return { ready, isReady, drawTo, makeViewer, poseOf, lerpPose, movesOf, contactAnchor, _pose: poseModel, _load: loadGLB };
 })();
