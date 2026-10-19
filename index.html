@@ -226,6 +226,19 @@ body.tv.in-session .top .gear{display:none}
 .sheet .in{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:14px max(16px,env(safe-area-inset-left,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
 .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto}
 .sheet .close{position:sticky;top:0;align-self:flex-end}
+.sheet .in.wide{max-width:900px}
+#gprint .pg{display:flex;flex-direction:column;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+#gprint .g-figs{flex-direction:row;align-items:center;flex-wrap:wrap} #gprint .g-frames{grid-template-columns:1fr 1fr;gap:10px;flex:1 1 320px} #gprint .frame canvas{height:220px}
+@media (max-width:640px){ #gprint .g-frames{grid-template-columns:1fr} #gprint .frame canvas{height:240px} }
+@media print{
+  body.printing>*:not(#gprint){display:none!important}
+  body.printing #gprint{position:static;display:block;background:none;inset:auto}
+  body.printing #gprint .in{max-width:none;max-height:none;overflow:visible;border-radius:0;padding:0;background:#fff}
+  body.printing #gprint .tools,body.printing #gprint .grab{display:none!important}
+  body.printing #gprint .pg{break-after:page;border:0} body.printing #gprint .pg:last-child{break-after:auto}
+  body.printing #gprint .mqhint,body.printing #gprint [data-play]{display:none!important}
+}
+
 .legend .m1,.legend .m2{width:12px;height:12px;border-radius:3px}
 .legend .m1{background:var(--accent)} .legend .m2{background:var(--accent-soft);border:1px solid var(--accent)}
 .guide-item{display:grid;grid-template-columns:90px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
@@ -379,7 +392,8 @@ body.tv.in-session .top .gear{display:none}
         <p class="small">Every move in the program: what it is, which muscles it works, and how to do it the first time. Tap any row. The same sheet opens from the <b>i</b> button during a session.</p>
         <div class="row legend small muted"><span class="row" style="gap:6px"><i class="m1"></i>Primary muscles</span><span class="row" style="gap:6px"><i class="m2"></i>Also working</span></div>
         <div class="row">
-          <button class="btn sm" id="g-pdf">Download the PDF</button>
+          <button class="btn sm" id="g-print">Printable guide</button>
+          <button class="btn ghost sm" id="g-pdf">Save / share PDF</button>
           <a class="btn ghost sm" id="g-pdf-link" href="core-ten-guide.pdf" target="_blank" rel="noopener">Open PDF</a>
         </div>
         <p class="small muted" id="g-pdf-note"></p>
@@ -397,6 +411,14 @@ body.tv.in-session .top .gear{display:none}
   </div></nav>
 </div>
 <div class="toast" id="toast" role="status"></div>
+<div class="sheet" id="gprint" hidden role="dialog" aria-modal="true" aria-labelledby="gprint-title">
+  <div class="in wide">
+    <div class="grab"></div>
+    <div class="row tools" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="eyebrow" id="gprint-title">Printable guide</span><div class="row" style="gap:8px"><button class="btn ghost sm" id="gprint-pdf">Save / share PDF</button><button class="btn ghost sm" id="gprint-print">Print</button><button class="btn sm" id="gprint-close">Back to app</button></div></div>
+    <p class="small muted tools" id="gprint-note">Every exercise with its start and end positions, the same content as the PDF. Print sends it to AirPrint; on an iPhone, pinch out on the print preview to get a PDF you can share.</p>
+    <div class="stack" id="gprint-body"></div>
+  </div>
+</div>
 <div class="sheet" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="in">
     <div class="grab"></div>
@@ -1698,18 +1720,47 @@ function renderGuide(){
   $("g-list").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
   mountFigures($("g-list"), false);
 }
-async function downloadPDF(){
-  const btn = $("g-pdf"); btn.disabled = true;
+// Standalone = launched from the home screen. There, a plain link to the PDF replaces the app with no way back,
+// so the PDF is offered through the share sheet and the guide itself opens in-app.
+function isStandalone(){ try { return window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: fullscreen)").matches; } catch(e){ return false; } }
+async function downloadPDF(ev){
+  const btn = ev && ev.currentTarget || $("g-pdf"); btn.disabled = true;
   try {
-    const dl = await claude.use("downloads");
-    if (!dl) { $("g-pdf-note").textContent = "Saving isn't available in this view. Use Open PDF and save it from there."; return; }
+    let dl = null; try { dl = window.claude ? await claude.use("downloads") : null; } catch(e){}
     const r = await fetch("core-ten-guide.pdf"); if (!r.ok) throw new Error("fetch");
-    await dl.save({ filename: "core-ten-guide.pdf", data: await r.blob() });
-    toast("Saved.");
+    const blob = await r.blob();
+    if (dl) { await dl.save({ filename: "core-ten-guide.pdf", data: blob }); toast("Saved."); return; }
+    const file = new File([blob], "core-ten-guide.pdf", { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: "Core Ten · Exercise guide" }); } catch(e){ if (e.name !== "AbortError") throw e; } return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "core-ten-guide.pdf"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   } catch(e){
     if (e && e.code === "declined") return;
-    $("g-pdf-note").textContent = "Couldn't save from here. Use Open PDF and save it from there.";
+    $("g-pdf-note").textContent = "Couldn't save from here. Use Printable guide and print to PDF instead.";
   } finally { btn.disabled = false; }
+}
+let gprintBuilt = false;
+function openPrintGuide(){
+  $("gprint").hidden = false; document.body.style.overflow = "hidden";
+  if (!gprintBuilt) {
+    gprintBuilt = true;
+    const keys = Object.keys(GUIDE);
+    const blocks = BLOCKS.map(B=>`<div class="block"><h3>Block ${B.n} · ${B.name} <span class="pill">${B.weeks}</span></h3><p class="small">${B.goal}</p><p class="small"><b>A:</b> ${B.A.steps.map(([k,s])=>`${EX[k].name} ${s}s`).join(" · ")}</p><p class="small"><b>B:</b> ${B.B.steps.map(([k,s])=>`${EX[k].name} ${s}s`).join(" · ")}</p></div>`).join("");
+    $("gprint-body").innerHTML = `<section class="pg"><span class="eyebrow">Core Ten</span><h2>Exercise guide</h2>
+      <p class="small">Every move in the program: what it is, which muscles it works, how a beginner does it, what it should feel like, and the form fault that hurts backs. Based on Stuart McGill's "Big 3" (curl-up, side plank, bird dog) plus glute bridges and dead bugs, progressed over four blocks. Sessions are ten minutes.</p>
+      <div class="row legend small muted"><span class="row" style="gap:6px"><i class="m1"></i>Primary muscles</span><span class="row" style="gap:6px"><i class="m2"></i>Also working</span></div>
+      <div class="stack" style="gap:8px">${blocks}</div>
+      <p class="small danger"><b>Stop and see a doctor</b> if you get pain that shoots down a leg, numbness or tingling, weakness in a foot, pain that wakes you at night, or any change in bladder or bowel control. Sharp pain during a move is not something to work through: skip that move and note it.</p></section>` +
+      keys.map(k=>`<section class="pg">${guideHTML(k, { frames: true })}</section>`).join("");
+    mountFigures($("gprint-body"), false);
+  }
+  $("gprint-close").focus();
+}
+function closePrintGuide(){ $("gprint").hidden = true; document.body.style.overflow = ""; }
+function printGuide(){
+  document.body.classList.add("printing");
+  const done = () => document.body.classList.remove("printing");
+  window.addEventListener("afterprint", done, { once: true }); setTimeout(done, 60000);
+  try { window.print(); } catch(e){ done(); toast("Printing isn't available here"); }
 }
 
 async function setBlock(n){
@@ -1841,6 +1892,13 @@ function bindUI(){
   $("sheet").addEventListener("click", e=>{ if (e.target === $("sheet")) closeSheet(); });
   document.addEventListener("keydown", e=>{ if (e.key==="Escape" && !$("sheet").hidden) closeSheet(); });
   $("g-pdf").addEventListener("click", downloadPDF);
+  $("gprint-pdf").addEventListener("click", downloadPDF);
+  $("g-print").addEventListener("click", openPrintGuide);
+  $("gprint-close").addEventListener("click", closePrintGuide);
+  $("gprint-print").addEventListener("click", printGuide);
+  // From the home screen a plain link would replace the app, so route Open PDF into the in-app guide there.
+  $("g-pdf-link").addEventListener("click", e => { if (isStandalone()) { e.preventDefault(); openPrintGuide(); } });
+  if (isStandalone()) $("g-pdf-link").hidden = true;
   renderGuide();
   $("o-person").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); addPerson(); } });
   document.body.classList.toggle("tv", tv); $("s-tv").setAttribute("aria-pressed", String(tv));
