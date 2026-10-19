@@ -61,8 +61,10 @@ main{flex:1;padding:16px 0 90px}
 
 /* --- week dots --- */
 .week-month{font-family:var(--display);font-size:18px;font-weight:600;color:var(--ink);letter-spacing:.02em;margin-bottom:-6px}
-.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.day{display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:0;font:inherit;cursor:pointer;color:inherit}
+.week{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -4px;padding:4px 4px 6px;overscroll-behavior-x:contain}
+.week::-webkit-scrollbar{display:none}
+.day{flex:0 0 calc(100% / 7);scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:0;font:inherit;cursor:pointer;color:inherit}
+.week-month{margin-bottom:0}
 .day:active .dot{transform:scale(.94)}
 .chip.sm{padding:5px 11px;font-size:13px}
 .choice.sm{display:flex;gap:6px} .choice.sm button{padding:7px 10px;font-size:13px;min-width:0}
@@ -292,8 +294,8 @@ body.tv.in-session .top .gear{display:none}
           <p class="muted" id="h-desc">Stability. Learn the brace and the three base patterns.</p>
         </div>
         <div class="chips" id="h-viewer" hidden></div>
-        <div class="week-month" id="h-month">October 2026</div>
-        <div class="week" id="h-week-dots"></div>
+        <div class="row" style="justify-content:space-between;align-items:baseline"><div class="week-month" id="h-month">October 2026</div><button class="btn ghost sm" id="h-today" hidden>Today</button></div>
+        <div class="week" id="h-week-dots" aria-label="Calendar. Swipe sideways for other weeks"></div>
         <button class="btn" id="h-start">Start today's 10 minutes</button>
         <p class="small muted" id="h-status"></p>
       </div>
@@ -1729,6 +1731,23 @@ function streak(){
 /* ============================ RENDER ============================ */
 function renderAll(){ renderHome(); renderProgress(); renderBlocks(); renderMusic(); }
 
+/* ---- Week strip: a year each way, 7 days per screen, snaps per day. Swipe left for future weeks, right for past. ---- */
+const STRIP_WEEKS = 52; let stripStart = "", stripScroll = -1, stripRaf = 0;
+function stripDays(){ const first = addDays(weekKeys()[0], -7 * STRIP_WEEKS); return { first, n: 7 * (2 * STRIP_WEEKS + 1) }; }
+function stripDayWidth(){ return $("h-week-dots").clientWidth / 7; }
+function renderStrip(){
+  const el = $("h-week-dots"); const { first, n } = stripDays(); const today = todayKey(); const keys = Array.from({length:n}, (_,i)=>addDays(first,i));
+  const reset = stripStart !== first; stripStart = first;
+  el.innerHTML = keys.map(k=>{ const r = isRestKey(k); const d = didSession(k); const dt = new Date(k+"T12:00:00"); const isToday = k===today;
+    return `<button type="button" class="day" data-plan="${k}" aria-label="${DOW_SHORT[dt.getDay()]} ${MONTHS[dt.getMonth()].slice(0,3)} ${dt.getDate()}${r?", rest day":""}${d?", done":""}${isToday?", today":""}. Open the plan"><span class="wd">${DOW_SHORT[dt.getDay()]}</span><div class="dot ${d?"done":""} ${r?"rest":""} ${isToday?"today":""}">${dt.getDate()}${d?'<i aria-hidden="true">✓</i>':""}</div></button>`; }).join("");
+  el.querySelectorAll("[data-plan]").forEach(b=>b.addEventListener("click", ()=>openPlan(b.dataset.plan)));
+  if (!el._wired) { el._wired = true; el.addEventListener("scroll", ()=>{ stripScroll = el.scrollLeft; if (!stripRaf) stripRaf = requestAnimationFrame(()=>{ stripRaf = 0; stripLabel(); }); }, { passive: true }); window.addEventListener("resize", ()=>stripScrollToWeek(stripIndex())); }
+  if (reset || stripScroll < 0) stripScrollToWeek(7 * STRIP_WEEKS); else { el.scrollLeft = stripScroll; stripLabel(); }
+}
+function stripIndex(){ const w = stripDayWidth(); return w ? Math.round($("h-week-dots").scrollLeft / w) : 7 * STRIP_WEEKS; }
+function stripScrollToWeek(i, smooth){ const el = $("h-week-dots"); const w = stripDayWidth(); if (!w) { requestAnimationFrame(()=>stripScrollToWeek(i, smooth)); return; }
+  const left = i * w; if (smooth) el.scrollTo({ left, behavior: "smooth" }); else el.scrollLeft = left; stripScroll = left; stripLabel(); }
+function stripLabel(){ const i = stripIndex(); const keys = Array.from({length:7}, (_,j)=>addDays(stripStart, i + j)); $("h-month").textContent = weekMonthLabel(keys); const t = todayKey(); $("h-today").hidden = keys.includes(t); }
 function renderHome(){
   const B = BLOCKS[profile.block-1]; const day = todayDay(); const S = B[day];
   $("h-block").textContent = `Block ${B.n} · ${B.name}`;
@@ -1736,11 +1755,7 @@ function renderHome(){
   const done = didSession(todayKey()); const rest = isRestToday(); personChips("h-viewer");
   $("h-title").textContent = rest && !done ? "Rest day" : S.title;
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
-  const wk = weekKeys();
-  $("h-month").textContent = weekMonthLabel(wk);
-  $("h-week-dots").innerHTML = wk.map(k=>{ const r = isRestKey(k); const d = didSession(k); const dt = new Date(k+"T12:00:00"); const today = k===todayKey();
-    return `<button type="button" class="day" data-plan="${k}" aria-label="${DOW_SHORT[dt.getDay()]} ${dt.getDate()}${r?", rest day":""}${d?", done":""}${today?", today":""}. Open the plan"><span class="wd">${DOW_SHORT[dt.getDay()]}</span><div class="dot ${d?"done":""} ${r?"rest":""} ${today?"today":""}">${dt.getDate()}${d?'<i aria-hidden="true">✓</i>':""}</div></button>`; }).join("");
-  $("h-week-dots").querySelectorAll("[data-plan]").forEach(b=>b.addEventListener("click", ()=>openPlan(b.dataset.plan)));
+  renderStrip();
   const total = S.steps.reduce((a,s)=>a+s[1],0);
   $("h-steps").innerHTML = S.steps.map(([k,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`).join("");
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
@@ -1995,6 +2010,7 @@ function bindUI(){
   $("h-start").addEventListener("click", startSession);
   $("h-tv").addEventListener("click", ()=>{ setTV(true); startSession(); });
   $("o-music-save").addEventListener("click", saveMusic);
+  $("h-today").addEventListener("click", ()=>stripScrollToWeek(7 * STRIP_WEEKS, true));
   $("plan-close").addEventListener("click", closePlan);
   $("plan").addEventListener("click", e=>{ if (e.target === $("plan")) closePlan(); });
   $("plan-prev").addEventListener("click", ()=>openPlan(addDays(planKey,-1)));
