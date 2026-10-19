@@ -166,7 +166,8 @@ textarea{width:100%;min-height:64px;border:1px solid var(--line);border-radius:8
 .chip .x{font-size:18px;line-height:1;color:var(--ink-2)}
 .addrow{display:flex;gap:8px}
 .addrow input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--panel);color:var(--ink);font:inherit}
-.fam{display:grid;grid-template-columns:1fr auto auto;gap:6px 14px;font-size:14.5px}
+.fam{display:grid;grid-template-columns:1fr auto auto auto;gap:6px 18px;font-size:14.5px;align-items:baseline}
+.fam .num{text-align:right}
 .fam .h{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
 .fam .n{font-weight:600}
 details summary{cursor:pointer;font-weight:600;font-size:14.5px}
@@ -568,7 +569,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.19-0807";
+const APP_VERSION = "2026.10.19-1427";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
