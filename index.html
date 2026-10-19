@@ -1734,7 +1734,9 @@ function renderAll(){ renderHome(); renderProgress(); renderBlocks(); renderMusi
 /* ---- Week strip: a year each way, 7 days per screen, snaps per day. Swipe left for future weeks, right for past. ---- */
 const STRIP_WEEKS = 52; let stripStart = "", stripScroll = -1, stripRaf = 0;
 function stripDays(){ const first = addDays(weekKeys()[0], -7 * STRIP_WEEKS); return { first, n: 7 * (2 * STRIP_WEEKS + 1) }; }
-function stripDayWidth(){ return $("h-week-dots").clientWidth / 7; }
+// Measure from the day elements themselves: the strip has padding, so clientWidth/7 drifts by a pixel per day and lands weeks off.
+function stripDayWidth(){ const c = $("h-week-dots").children; return c.length > 1 ? c[1].offsetLeft - c[0].offsetLeft : 0; }
+function stripLeftOf(i){ const c = $("h-week-dots").children; return c.length ? c[Math.max(0, Math.min(c.length - 1, i))].offsetLeft - c[0].offsetLeft : 0; }
 function renderStrip(){
   const el = $("h-week-dots"); const { first, n } = stripDays(); const today = todayKey(); const keys = Array.from({length:n}, (_,i)=>addDays(first,i));
   const reset = stripStart !== first; stripStart = first;
@@ -1744,10 +1746,13 @@ function renderStrip(){
   if (!el._wired) { el._wired = true; el.addEventListener("scroll", ()=>{ stripScroll = el.scrollLeft; if (!stripRaf) stripRaf = requestAnimationFrame(()=>{ stripRaf = 0; stripLabel(); }); }, { passive: true }); window.addEventListener("resize", ()=>stripScrollToWeek(stripIndex())); }
   if (reset || stripScroll < 0) stripScrollToWeek(7 * STRIP_WEEKS); else { el.scrollLeft = stripScroll; stripLabel(); }
 }
-function stripIndex(){ const w = stripDayWidth(); return w ? Math.round($("h-week-dots").scrollLeft / w) : 7 * STRIP_WEEKS; }
+function stripIndex(){ const el = $("h-week-dots"); const c = el.children; if (c.length < 2) return 7 * STRIP_WEEKS; const x = el.scrollLeft + c[0].offsetLeft; // nearest day edge to the left edge of the view
+  let lo = 0, hi = c.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (c[mid].offsetLeft < x) lo = mid + 1; else hi = mid; }
+  if (lo > 0 && Math.abs(c[lo - 1].offsetLeft - x) <= Math.abs(c[lo].offsetLeft - x)) lo--; return lo; }
+function stripFirstVisibleKey(){ const el = $("h-week-dots"); const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + stripDayWidth() * 0.5 + 2, r.top + r.height / 2); const d = hit && hit.closest("[data-plan]"); return d ? d.dataset.plan : null; }
 let stripAnim = 0;
 function stripScrollToWeek(i, smooth){ const el = $("h-week-dots"); const w = stripDayWidth(); if (!w) { requestAnimationFrame(()=>stripScrollToWeek(i, smooth)); return; }
-  const left = Math.round(i * w); if (stripAnim) { cancelAnimationFrame(stripAnim); stripAnim = 0; el.style.scrollSnapType = ""; }
+  const left = Math.round(stripLeftOf(i)); if (stripAnim) { cancelAnimationFrame(stripAnim); stripAnim = 0; el.style.scrollSnapType = ""; }
   const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!smooth || reduce || Math.abs(el.scrollLeft - left) < 2) { el.scrollLeft = left; stripScroll = left; stripLabel(); return; }
   // Drive the scroll by hand: iOS ignores or snaps back on smooth scrollTo() inside a snap container, so snapping is paused for the glide.
