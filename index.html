@@ -293,7 +293,6 @@ body.tv.in-session .top .gear{display:none}
           <div class="big" id="h-title">Session A</div>
           <p class="muted" id="h-desc">Stability. Learn the brace and the three base patterns.</p>
         </div>
-        <div class="chips" id="h-viewer" hidden></div>
         <div class="row" style="justify-content:space-between;align-items:baseline"><div class="week-month" id="h-month">October 2026</div><button class="btn ghost sm" id="h-today" hidden>Today</button></div>
         <div class="week" id="h-week-dots" aria-label="Calendar. Swipe sideways for other weeks"></div>
         <div class="chips" id="h-join" hidden></div>
@@ -394,6 +393,7 @@ body.tv.in-session .top .gear{display:none}
 
     <!-- ================= BLOCKS ================= -->
     <section class="view stack" id="v-blocks">
+      <p class="eyebrow" id="b-who" style="padding:0 4px"></p>
       <div class="card stack" id="b-list"></div>
       <div class="card stack">
         <span class="eyebrow">What this plan is, and isn't</span>
@@ -436,6 +436,15 @@ body.tv.in-session .top .gear{display:none}
     <div class="stack" id="gprint-body"></div>
   </div>
 </div>
+<div class="sheet" id="who" hidden role="dialog" aria-modal="true" aria-labelledby="who-title">
+  <div class="in">
+    <div class="grab"></div>
+    <span class="eyebrow" id="who-title">Who's using this phone?</span>
+    <p class="small" id="who-lead"></p>
+    <div class="chips" id="who-list"></div>
+    <div class="addrow"><input id="who-name" type="text" maxlength="20" placeholder="Your name" autocomplete="given-name"><button class="btn sm" id="who-add">Continue</button></div>
+  </div>
+</div>
 <div class="sheet" id="plan" hidden role="dialog" aria-modal="true" aria-labelledby="plan-title">
   <div class="in">
     <div class="grab"></div>
@@ -459,15 +468,16 @@ body.tv.in-session .top .gear{display:none}
           <p class="small muted">Changes the week strip and the "this week" count. Rest days and streaks are unaffected.</p>
         </div>
         <div class="stack" style="gap:8px">
-          <p class="small">You</p>
+          <p class="small">This phone belongs to</p>
+          <div class="chips" id="o-device"></div>
           <div class="addrow"><input id="o-me" type="text" maxlength="20" placeholder="Your name" autocomplete="given-name"><button class="btn ghost sm" id="o-me-save">Save</button></div>
-          <p class="small muted" id="o-me-note">Your sessions, check-ins and streak are filed under this name. Renaming keeps your history.</p>
+          <p class="small muted" id="o-me-note">The Today screen, Blocks and Start button run this person's plan. Each person has their own block, sessions, check-ins and streak; renaming keeps the history.</p>
         </div>
         <div class="stack" style="gap:8px">
-          <p class="small">Family <span class="muted">· people who may join you</span></p>
+          <p class="small">Family <span class="muted">· everyone else on the roster</span></p>
           <div class="chips" id="o-people"></div>
           <div class="addrow"><input id="o-person" type="text" maxlength="20" placeholder="Add a name" autocomplete="off"><button class="btn ghost sm" id="o-person-add">Add</button></div>
-          <p class="small muted">Before a session, tick who's training with you on the Today screen; you can adjust it at the check-in too. Everyone who joins gets their own check-in, progress and streak.</p>
+          <p class="small muted">Tick who's training with you on the Today screen before you start; adjust at the check-in if needed. Each person gets their own record, check-in and streak, and their own plan when they use the app on their own phone.</p>
         </div>
         <div class="stack" style="gap:8px">
           <p class="small">Music <span class="muted">· opens in Apple Music, keeps playing while you train</span></p>
@@ -1454,7 +1464,7 @@ const fmtClock = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 const addDays = (k, n) => { const d = new Date(k+"T12:00:00"); d.setDate(d.getDate()+n); return todayKey(d); };
 
 const DEFAULT_REST = [1,3]; // getDay() numbers: Mon, Wed
-let profile = { startDate: todayKey(), block: 1, blockStart: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], music: "", sound: true, weekStart: 1 };
+let profile = { startDate: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], plans: {}, music: "", sound: true, weekStart: 1 };
 // Older profiles stored restSunday:boolean. Convert once, in memory; the next save writes restDays and drops the old flag.
 function migrateProfile(p){
   const out = { ...p };
@@ -1466,6 +1476,11 @@ function migrateProfile(p){
   if (!out.people.length) out.people = ["Me"];
   out.music = cleanMusicUrl(out.music);
   out.weekStart = out.weekStart === 0 ? 0 : 1; // 1 = Monday (default), 0 = Sunday
+  // v2: every person has their own plan (block + when it started). Older profiles kept one plan at the top level: it belongs to the first name.
+  if (!out.plans || typeof out.plans !== "object") out.plans = {};
+  if (out.block && !out.plans[out.people[0]]) out.plans[out.people[0]] = { block: out.block, blockStart: out.blockStart || todayKey() };
+  delete out.block; delete out.blockStart;
+  for (const [n, pl] of Object.entries(out.plans)) { if (!pl || typeof pl !== "object" || !out.people.includes(n)) { delete out.plans[n]; continue; } pl.block = Math.min(4, Math.max(1, +pl.block || 1)); if (!/^\d{4}-\d{2}-\d{2}$/.test(pl.blockStart || "")) pl.blockStart = todayKey(); }
   return out;
 }
 // Music hand-off: a saved playlist link that opens in its app (Apple Music, Spotify, YouTube Music). The page itself can't stream.
@@ -1492,7 +1507,22 @@ function setTV(on){
   try { localStorage.setItem("coreten.tv", tv?"1":"0"); } catch(e){}
   try { if (tv && document.fullscreenEnabled && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); if (!tv && document.fullscreenElement) document.exitFullscreen().catch(()=>{}); } catch(e){}
 }
-let sessions = {};        // date -> {date, block, day, secs, back, note, at}
+let sessions = {};        // "date_name" -> {date, name, block, day, secs, back, note, with:[names], at}
+const sid = (date, name) => `${date}_${name}`;
+// Older records were one per date for the whole family (`who` + `backs`). Split them into one record per person.
+function normalizeSessions(){
+  const legacy = Object.entries(sessions).filter(([k, r]) => r && typeof r === "object" && (!r.name || /^\d{4}-\d{2}-\d{2}$/.test(k)));
+  if (!legacy.length) return [];
+  const owner = profile.people[0]; const made = [];
+  for (const [k, r] of legacy) {
+    const names = Array.isArray(r.who) && r.who.length ? r.who : [owner];
+    for (const n of names) { const id = sid(r.date || k.slice(0,10), n); if (sessions[id] && sessions[id].name) continue;
+      const back = r.backs && r.backs[n] !== undefined ? (r.backs[n] || "") : (n === owner ? (r.back || "") : "");
+      sessions[id] = { date: r.date || k.slice(0,10), name: n, block: r.block || 1, day: r.day || "A", secs: r.secs || 0, back, note: r.note || "", with: names.filter(x => x !== n), at: r.at || new Date().toISOString() }; made.push(sessions[id]); }
+    delete sessions[k];
+  }
+  return { made, removed: legacy.map(([k]) => k) };
+}
 let store = null;         // db namespace or null
 let storage = "none";     // "db" | "local" | "none"
 let unsub = [];
@@ -1508,14 +1538,17 @@ async function boot(){
       const p = await store.doc("profile/main").get();
       if (p.exists) { const d = p.data(); profile = migrateProfile({ ...profile, ...d, restDays: d.restDays }); if (!Array.isArray(d.restDays)) saveProfile(); }
       else await store.doc("profile/main").set(profile);
-      unsub.push(store.collection("sessions").onSnapshot(snap => {
+      unsub.push(store.collection("sessions").onSnapshot(async snap => {
         sessions = {};
         snap.docs.forEach(d => { if (d.exists) sessions[d.id] = d.data(); });
-        renderAll();
+        const mig = normalizeSessions();
+        if (mig && mig.made) { try { for (const r of mig.made) await store.doc("sessions/" + sid(r.date, r.name)).set(r); for (const k of mig.removed) await store.doc("sessions/" + k).delete(); } catch(e){} }
+        ensureMe(); renderAll();
       }, err => { toast("Live sync paused. Progress still saves."); }));
     } catch(e){ storage = "local"; loadLocal(); }
   } else { storage = "local"; loadLocal(); }
-  renderAll();
+  if (normalizeSessions()) { if (storage === "local") try { localStorage.setItem("coreten.sessions", JSON.stringify(sessions)); } catch(e){} }
+  ensureMe(); renderAll();
   setSyncStatus(sync.last ? "Last synced " + new Date(sync.last).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
   if (sync.token) syncNow(fromLink ? "manual" : "boot");
   if (fromLink) toast("Sync connected from the setup link");
@@ -1524,6 +1557,7 @@ function loadLocal(){
   try {
     const p = localStorage.getItem("coreten.profile"); if (p) { const d = JSON.parse(p); profile = migrateProfile({ ...profile, ...d, restDays: d.restDays }); }
     const s = localStorage.getItem("coreten.sessions"); if (s) sessions = JSON.parse(s);
+    normalizeSessions();
   } catch(e){ storage = "none"; }
 }
 async function saveProfile(){
@@ -1542,17 +1576,13 @@ function renderCheckinBacks(){
   $("c-backs").innerHTML = who.map(n=>`<div class="row" data-person="${esc(n)}" style="justify-content:space-between;gap:8px"><span style="font-weight:600;min-width:64px">${esc(n)}</span><div class="choice sm">${["better","same","worse"].map(v=>`<button type="button" data-v="${v}" aria-pressed="${keep[n]===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join("")}</div></div>`).join("");
   $("c-backs").querySelectorAll("[data-person]").forEach(row=>row.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ row.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); })));
 }
-async function saveSession(rec){
-  // Second session on the same day (someone else trained later): merge people and their check-ins instead of overwriting.
-  const prev = sessions[rec.date];
-  if (prev && prev.at !== rec.at) { const who = [...new Set([...sessionWho(prev), ...sessionWho(rec)])]; const backs = { ...(prev.backs||{}), ...(rec.backs||{}) }; if (prev.back && !rec.backs?.[profile.people[0]]) backs[profile.people[0]] = prev.back;
-    rec = { ...prev, ...rec, who, backs, back: backs[profile.people[0]] || "", note: rec.note || prev.note || "", secs: Math.max(prev.secs||0, rec.secs||0) }; }
-  sessions[rec.date] = rec;
+async function saveSession(rec){ // one record per person per day; saving again the same day replaces that person's record
+  sessions[sid(rec.date, rec.name)] = rec;
   try { await persistSession(rec); } finally { scheduleSync(); }
   return true;
 }
 async function persistSession(rec){
-  if (storage === "db") { try { await store.doc("sessions/"+rec.date).set(rec); return; } catch(e){ toast("Couldn't save to the cloud; kept on this device."); } }
+  if (storage === "db") { try { await store.doc("sessions/"+sid(rec.date, rec.name)).set(rec); return; } catch(e){ toast("Couldn't save to the cloud; kept on this device."); } }
   try { localStorage.setItem("coreten.sessions", JSON.stringify(sessions)); } catch(e){}
 }
 
@@ -1569,7 +1599,7 @@ function snapshotData(){ return { profile, sessions }; }
 function mergeData(a, b){
   if (!b || typeof b !== "object") return { profile: a.profile, sessions: { ...a.sessions } };
   const out = { ...a.sessions };
-  for (const [k, v] of Object.entries(b.sessions || {})) { if (!v || typeof v !== "object" || !/^\d{4}-\d{2}-\d{2}$/.test(k)) continue; const l = out[k]; if (!l || String(v.at || "") > String(l.at || "")) out[k] = v; }
+  for (const [k, v] of Object.entries(b.sessions || {})) { if (!v || typeof v !== "object" || !/^\d{4}-\d{2}-\d{2}(_.+)?$/.test(k)) continue; const l = out[k]; if (!l || String(v.at || "") > String(l.at || "")) out[k] = v; }
   let prof = a.profile;
   const pb = b.profile;
   if (pb && typeof pb === "object" && (!a.profile.updatedAt || String(pb.updatedAt || "") > String(a.profile.updatedAt || ""))) prof = migrateProfile({ ...a.profile, ...pb, restDays: pb.restDays });
@@ -1579,7 +1609,7 @@ async function applyMerged(m){
   const before = snapshotData();
   const changedSessions = Object.keys(m.sessions).filter(k => canon(m.sessions[k]) !== canon(before.sessions[k] || null));
   const profChanged = canon(m.profile) !== canon(before.profile);
-  sessions = m.sessions; profile = m.profile;
+  sessions = m.sessions; profile = m.profile; normalizeSessions();
   if (profChanged) await persistProfile();
   if (storage === "db") { for (const k of changedSessions) await persistSession(sessions[k]); }
   else if (changedSessions.length) await persistSession(sessions[changedSessions[0]]);
@@ -1630,23 +1660,23 @@ async function syncNow(reason){
 }
 /* ---- Plan for any day: past days show what was logged, today and future days show the projected session (A/B alternates per
    session done in the block; a rest day shows the session that would be next if you train anyway). ---- */
-function planFor(k){
-  const today = todayKey(); const rest = isRestKey(k); const s = sessions[k];
+function planFor(k, name){
+  const who = name || me(); const today = todayKey(); const rest = isRestKey(k); const s = sessions[sid(k, who)];
   if (s) return { kind: "done", rest, block: s.block, day: s.day, rec: s };
   if (k < today) return { kind: "missed", rest };
   // count training days from today up to k that aren't logged yet; today's own session counts if it isn't done
-  let n = blockSessions(), block = profile.block; let kk = today, idx = 0;
+  const pl = plan(who); let n = blockSessions(who), block = pl.block; let kk = today, idx = 0;
   while (kk <= k) { if (!isRestKey(kk) || kk === k) { if (kk === k) { idx = n; break; } n++; } kk = addDays(kk, 1); }
   while (idx >= SESSIONS_TO_ADVANCE && block < 4) { idx -= SESSIONS_TO_ADVANCE; block++; }
-  return { kind: k === today ? "today" : "future", rest, block, day: idx % 2 === 0 ? "A" : "B", projected: block !== profile.block };
+  return { kind: k === today ? "today" : "future", rest, block, day: idx % 2 === 0 ? "A" : "B", projected: block !== pl.block };
 }
 let planKey = "";
 function openPlan(k){
-  planKey = k; const P = planFor(k); const dt = new Date(k+"T12:00:00"); const B = BLOCKS[P.block ? P.block-1 : profile.block-1]; const S = P.day ? B[P.day] : null;
+  planKey = k; const P = planFor(k); const dt = new Date(k+"T12:00:00"); const B = BLOCKS[P.block ? P.block-1 : plan(me()).block-1]; const S = P.day ? B[P.day] : null;
   const title = `${DOW_SHORT[dt.getDay()]} · ${MONTHS[dt.getMonth()].slice(0,3)} ${dt.getDate()}${k===todayKey()?" · today":""}`;
   $("plan-title").textContent = title;
   let head = "";
-  if (P.kind === "done") head = `<p class="small"><b>Done</b> · ${esc(sessionWho(P.rec).join(", "))}${P.rec.secs?` · ${Math.round(P.rec.secs/60)} min`:""}${P.rec.note?`<br><span class="muted">${esc(P.rec.note)}</span>`:""}</p>`;
+  if (P.kind === "done") head = `<p class="small"><b>Done</b>${P.rec.with && P.rec.with.length ? ` · with ${esc(P.rec.with.join(", "))}` : ""}${P.rec.secs?` · ${Math.round(P.rec.secs/60)} min`:""}${P.rec.back?` · back ${P.rec.back}`:""}${P.rec.note?`<br><span class="muted">${esc(P.rec.note)}</span>`:""}</p>`;
   else if (P.kind === "missed") head = `<p class="small muted">${P.rest ? "Rest day. " : ""}No session logged.</p>`;
   else head = `<p class="small">${P.rest ? "<b>Rest day.</b> Nothing planned; if you train anyway, this is the next session." : P.kind === "today" ? "<b>Today's session.</b>" : "<b>Planned.</b> Assumes you do every session between now and then."}${P.projected ? ` <span class="muted">Projected into Block ${P.block} · advance it from the Blocks tab first.</span>` : ""}</p>`;
   const total = S ? S.steps.reduce((a,x)=>a+x[1],0) : 0;
@@ -1694,23 +1724,24 @@ async function pasteSyncCode(){
 }
 
 /* ============================ DERIVED ============================ */
-function blockSessions(){ return Object.values(sessions).filter(s => s.block === profile.block).length; }
-/* ---- People. One session record per date is the family's session; `who` lists everyone in it, `backs` holds each person's
-   back check-in. A record with no `who` (logged before the roster existed) belongs to the first person. ---- */
-function sessionWho(s){ return Array.isArray(s.who) && s.who.length ? s.who : [profile.people[0]]; }
-function sessionBack(s, name){ if (s.backs && s.backs[name] !== undefined) return s.backs[name] || ""; return name === profile.people[0] ? (s.back || "") : ""; }
+/* ---- People. The roster is shared; each person has their own plan (block + start date) and their own session records.
+   `me` is who uses THIS device (kept locally, so each family member's phone runs their own plan). ---- */
+let deviceMe = ""; try { deviceMe = localStorage.getItem("coreten.me") || ""; } catch(e){}
+function me(){ return profile.people.includes(deviceMe) ? deviceMe : profile.people[0]; }
+function setMe(n){ deviceMe = n; try { localStorage.setItem("coreten.me", n); } catch(e){} viewAs = n; try { localStorage.setItem("coreten.viewAs", n); } catch(e){} joiners.clear(); saveJoiners(); renderAll(); }
+function ensureMe(){ if (!profile.people.includes(deviceMe)) { if (profile.people.length === 1 && profile.people[0] === "Me") openWhoSheet(true); else openWhoSheet(false); } }
+function plan(name){ const n = name || me(); if (!profile.plans[n]) { profile.plans[n] = { block: 1, blockStart: todayKey() }; } return profile.plans[n]; }
+function personSessions(name){ const n = name || me(); return Object.values(sessions).filter(s => s.name === n); }
+function blockSessions(name){ const n = name || me(); const pl = plan(n); return personSessions(n).filter(s => s.date >= pl.blockStart).length; }
+function didSession(k, name){ return !!sessions[sid(k, name || me())]; }
 let viewAs = ""; try { viewAs = localStorage.getItem("coreten.viewAs") || ""; } catch(e){}
-function viewer(){ return profile.people.includes(viewAs) ? viewAs : profile.people[0]; }
+function viewer(){ return profile.people.includes(viewAs) ? viewAs : me(); }
 function setViewer(n){ viewAs = n; try { localStorage.setItem("coreten.viewAs", n); } catch(e){} renderAll(); }
-function didSession(k, name){ const s = sessions[k]; return !!s && sessionWho(s).includes(name || viewer()); }
-function personSessions(name){ const n = name || viewer(); return Object.values(sessions).filter(s => sessionWho(s).includes(n)); }
 function personChips(id){ const el = $(id); if (!el) return; el.hidden = profile.people.length < 2; if (el.hidden) { el.innerHTML = ""; return; }
-  const v = viewer(); el.innerHTML = `<span class="small muted" style="align-self:center">Showing</span>` + profile.people.map(n=>`<button type="button" class="chip sm" data-v="${esc(n)}" aria-pressed="${n===v}">${esc(n)}</button>`).join("");
+  const v = viewer(); el.innerHTML = `<span class="small muted" style="align-self:center">Showing</span>` + profile.people.map(n=>`<button type="button" class="chip sm" data-v="${esc(n)}" aria-pressed="${n===v}">${esc(n)}${n===me()?" (you)":""}</button>`).join("");
   el.querySelectorAll("[data-v]").forEach(b=>b.addEventListener("click", ()=>setViewer(b.dataset.v))); }
-function weekOfBlock(){ const ms = new Date(todayKey()+"T12:00:00") - new Date(profile.blockStart+"T12:00:00"); return Math.max(1, Math.floor(ms/864e5/7)+1); }
-function todayDay(){ // alternate A/B by count of sessions in this block
-  return blockSessions() % 2 === 0 ? "A" : "B";
-}
+function weekOfBlock(name){ const ms = new Date(todayKey()+"T12:00:00") - new Date(plan(name).blockStart+"T12:00:00"); return Math.max(1, Math.floor(ms/864e5/7)+1); }
+function todayDay(name){ return blockSessions(name) % 2 === 0 ? "A" : "B"; } // alternate A/B by sessions done in this block
 function weekKeys(){ // the 7 days of the current week, starting on profile.weekStart (1 = Monday, 0 = Sunday)
   const d = new Date(todayKey()+"T12:00:00"); const dow = (d.getDay() - (profile.weekStart||0) + 7) % 7; const first = addDays(todayKey(), -dow);
   return Array.from({length:7}, (_,i)=>addDays(first,i));
@@ -1726,11 +1757,11 @@ function nextTrainingLabel(){
   for (let i=1;i<=7;i++){ const k = addDays(todayKey(), i); if (!isRestKey(k)) return i===1 ? "Same time tomorrow." : `Next session ${new Date(k+"T12:00:00").toLocaleDateString(undefined,{weekday:"long"})}.`; }
   return "";
 }
-function streak(){
+function streak(name){
   // Rest days are neutral: they neither break nor add to the streak. A missed training day ends it.
-  let n = 0, k = todayKey(), guard = 0;
-  if (!didSession(k)) k = addDays(k,-1);
-  while (didSession(k) || isRestKey(k)) { if (didSession(k)) n++; k = addDays(k,-1); if (++guard>2000) break; }
+  const n0 = name || viewer(); let n = 0, k = todayKey(), guard = 0;
+  if (!didSession(k, n0)) k = addDays(k,-1);
+  while (didSession(k, n0) || isRestKey(k)) { if (didSession(k, n0)) n++; k = addDays(k,-1); if (++guard>2000) break; }
   return n;
 }
 
@@ -1768,10 +1799,10 @@ function stripScrollToWeek(i, smooth){ const el = $("h-week-dots"); const w = st
   stripAnim = requestAnimationFrame(step); }
 function stripLabel(){ const i = stripIndex(); const keys = Array.from({length:7}, (_,j)=>addDays(stripStart, i + j)); $("h-month").textContent = weekMonthLabel(keys); const t = todayKey(); $("h-today").hidden = keys.includes(t); }
 function renderHome(){
-  const B = BLOCKS[profile.block-1]; const day = todayDay(); const S = B[day];
-  $("h-block").textContent = `Block ${B.n} · ${B.name}`;
-  $("h-week").textContent = `Week ${weekOfBlock()}`;
-  const done = didSession(todayKey()); const rest = isRestToday(); personChips("h-viewer");
+  const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who); const S = B[day];
+  $("h-block").textContent = `${profile.people.length > 1 ? esc(who) + " · " : ""}Block ${B.n} · ${B.name}`;
+  $("h-week").textContent = `Week ${weekOfBlock(who)}`;
+  const done = didSession(todayKey(), who); const rest = isRestToday();
   $("h-title").textContent = rest && !done ? "Rest day" : S.title;
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
   renderStrip(); renderJoiners();
@@ -1782,41 +1813,42 @@ function renderHome(){
   if (done) { btn.textContent = "Done today · run it again"; btn.classList.add("ghost"); }
   else if (isRestToday()) { btn.textContent = "Rest day · run anyway"; btn.classList.add("ghost"); }
   else { btn.textContent = `Start today's ${Math.round(total/60)} minutes`; btn.classList.remove("ghost"); }
-  const bs = blockSessions();
+  const bs = blockSessions(who);
   const left = Math.max(0, SESSIONS_TO_ADVANCE - bs);
-  $("h-status").textContent = done ? `Logged. ${bs} session${bs===1?"":"s"} in this block.` : (left>0 ? `${bs} of ${SESSIONS_TO_ADVANCE} sessions toward Block ${Math.min(4,profile.block+1)}.` : `Block complete. Advance from the Blocks tab when you're ready.`);
-  $("h-note").textContent = storage==="db" ? "Progress saves to your account, so any device works." : storage==="local" ? "Progress saves on this device only (sign in on claude.ai to sync across devices)." : "Progress won't save in this view. The timer still works.";
+  $("h-status").textContent = done ? `Logged. ${bs} session${bs===1?"":"s"} in this block.` : (left>0 ? `${bs} of ${SESSIONS_TO_ADVANCE} sessions toward Block ${Math.min(4,pl.block+1)}.` : `Block complete. Advance from the Blocks tab when you're ready.`);
+  $("h-note").textContent = storage==="db" ? "Progress saves to your account, so any device works." : storage==="local" ? (sync.token ? "Progress syncs across the family's devices." : "Progress saves on this device only. Turn on sync in Settings to share it across devices.") : "Progress won't save in this view. The timer still works.";
   $("topsub").textContent = `${Math.round(total/60)} minutes · back-safe core`;
   $("h-people").innerHTML = profile.people.map(n=>`<span class="chip">${esc(n)}</span>`).join("");
 }
 
 function renderProgress(){
-  personChips("p-people"); const me = viewer();
-  const all = Object.values(sessions).sort((a,b)=>a.date<b.date?1:-1);
-  const list = all.filter(s => sessionWho(s).includes(me));
+  personChips("p-people"); const v = viewer();
+  const all = Object.values(sessions).filter(s => s && s.name).sort((a,b)=>a.date<b.date?1:-1);
+  const list = all.filter(s => s.name === v);
   $("p-total").textContent = list.length;
-  $("p-streak").textContent = streak();
-  const wk = weekKeys(); const wkDone = wk.filter(k=>didSession(k, me)).length;
+  $("p-streak").textContent = streak(v);
+  const wk = weekKeys(); const wkDone = wk.filter(k=>didSession(k, v)).length;
   $("p-week").textContent = `${wkDone}/${weekTarget()}`;
   const last = list.slice(0,21).reverse();
-  const bars = Array.from({length:21},(_,i)=>{ const s = last[i - (21-last.length)]; const b = s ? sessionBack(s, me) : ""; return `<i class="${s?(b||"none"):"none"}" title="${s?s.date+" · "+(b||"no check-in"):""}"></i>`; });
+  const bars = Array.from({length:21},(_,i)=>{ const s = last[i - (21-last.length)]; const b = s ? (s.back || "") : ""; return `<i class="${s?(b||"none"):"none"}" title="${s?s.date+" · "+(b||"no check-in"):""}"></i>`; });
   $("p-trend").innerHTML = bars.join("");
-  const c = {better:0,same:0,worse:0}; last.forEach(s=>{ const b = sessionBack(s, me); if (b) c[b]++; });
+  const c = {better:0,same:0,worse:0}; last.forEach(s=>{ if (s.back) c[s.back]++; });
   const n = c.better+c.same+c.worse;
   $("p-trend-text").textContent = n===0 ? "No check-ins yet. After each session you'll rate how your back feels; this is the only measure that matters for the first month." :
-    `${Math.round(100*c.better/n)}% better, ${Math.round(100*c.same/n)}% same, ${Math.round(100*c.worse/n)}% worse. ${c.worse>=2 && last.slice(-2).every(s=>sessionBack(s, me)==="worse") ? "Two 'worse' in a row: read the safety note on the Blocks tab before the next session." : c.better/n>=0.5 ? "Trending the right way. Keep the form, don't rush the block." : ""}`;
-  // Family tally. A session with no `who` (logged before the roster existed) belongs to the first person.
-  const wk7 = new Set(wk); const tally = {}; profile.people.forEach(p=>tally[p]={week:0,total:0});
-  all.forEach(s=>{ const who = sessionWho(s); who.forEach(p=>{ if (!tally[p]) tally[p]={week:0,total:0}; tally[p].total++; if (wk7.has(s.date)) tally[p].week++; }); });
+    `${Math.round(100*c.better/n)}% better, ${Math.round(100*c.same/n)}% same, ${Math.round(100*c.worse/n)}% worse. ${c.worse>=2 && last.slice(-2).every(s=>s.back==="worse") ? "Two 'worse' in a row: read the safety note on the Blocks tab before the next session." : c.better/n>=0.5 ? "Trending the right way. Keep the form, don't rush the block." : ""}`;
+  // Family tally: each person's own records.
+  const wk7 = new Set(wk); const tally = {}; profile.people.forEach(p=>tally[p]={week:0,total:0,block:plan(p).block});
+  all.forEach(s=>{ const p = s.name; if (!tally[p]) tally[p]={week:0,total:0,block:plan(p).block}; tally[p].total++; if (wk7.has(s.date)) tally[p].week++; });
   $("p-fam-card").hidden = profile.people.length < 2;
-  $("p-fam").innerHTML = `<span class="h">Name</span><span class="h">Week</span><span class="h">Total</span>` + Object.entries(tally).map(([p,t])=>`<span class="n">${esc(p)}</span><span class="num">${t.week}/${weekTarget()}</span><span class="num">${t.total}</span>`).join("");
-  $("p-log").innerHTML = list.length ? list.slice(0,30).map(s=>{ const b = sessionBack(s, me); const others = sessionWho(s).filter(p=>p!==me); return `<div class="r"><span class="num">${s.date.slice(5).replace("-","/")}</span><span>B${s.block}·${s.day} <span class="muted small">${others.length?"with "+esc(others.join(", ")):""}${s.note&&me===profile.people[0]?" · "+esc(s.note):""}</span></span><span class="b ${b||""}">${b||"–"}</span></div>`; }).join("") : `<p class="muted small">${esc(me)}'s first session will appear here.</p>`;
+  $("p-fam").innerHTML = `<span class="h">Name</span><span class="h">Block</span><span class="h">Week</span><span class="h">Total</span>` + Object.entries(tally).map(([p,t])=>`<span class="n">${esc(p)}</span><span class="num">${t.block}</span><span class="num">${t.week}/${weekTarget()}</span><span class="num">${t.total}</span>`).join("");
+  $("p-log").innerHTML = list.length ? list.slice(0,30).map(s=>{ const others = Array.isArray(s.with) ? s.with : []; return `<div class="r"><span class="num">${s.date.slice(5).replace("-","/")}</span><span>B${s.block}·${s.day} <span class="muted small">${others.length?"with "+esc(others.join(", ")):""}${s.note?" · "+esc(s.note):""}</span></span><span class="b ${s.back||""}">${s.back||"–"}</span></div>`; }).join("") : `<p class="muted small">${esc(v)}'s first session will appear here.</p>`;
 }
 
 function renderBlocks(){
-  const bs = blockSessions();
+  const who = me(); const pl = plan(who); const bs = blockSessions(who);
+  $("b-who").textContent = profile.people.length > 1 ? `${who}'s plan` : "";
   $("b-list").innerHTML = BLOCKS.map(B=>{
-    const active = B.n===profile.block; const canAdvance = B.n===profile.block+1 && bs>=SESSIONS_TO_ADVANCE;
+    const active = B.n===pl.block; const canAdvance = B.n===pl.block+1 && bs>=SESSIONS_TO_ADVANCE;
     return `<div class="block ${active?"active":""}">
       <div class="row" style="justify-content:space-between"><h3>Block ${B.n} · ${B.name}</h3><span class="pill">${B.weeks}</span></div>
       <p class="small" style="margin-top:4px">${B.goal}</p>
@@ -1831,25 +1863,55 @@ function renderBlocks(){
   $("o-sound").checked = profile.sound!==false;
 }
 function renderPeople(){
-  if (document.activeElement !== $("o-me")) $("o-me").value = profile.people[0] === "Me" ? "" : profile.people[0];
-  const others = profile.people.slice(1);
-  $("o-people").innerHTML = others.length ? others.map((n,i)=>`<span class="chip">${esc(n)}<button class="x" data-rm="${i+1}" aria-label="Remove ${esc(n)}">×</button></span>`).join("") : `<span class="small muted">No one yet. Add a name to log sessions together.</span>`;
-  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ const gone = profile.people[+b.dataset.rm]; profile.people.splice(+b.dataset.rm,1); joiners.delete(gone); await saveProfile(); renderAll(); }));
+  const who = me();
+  $("o-device").innerHTML = profile.people.map(n=>`<button type="button" class="chip sm" data-me="${esc(n)}" aria-pressed="${n===who}">${esc(n)}</button>`).join("");
+  $("o-device").querySelectorAll("[data-me]").forEach(b=>b.addEventListener("click", ()=>{ setMe(b.dataset.me); toast(`This phone is ${b.dataset.me}'s`); }));
+  if (document.activeElement !== $("o-me")) $("o-me").value = who === "Me" ? "" : who;
+  $("o-me").placeholder = who === "Me" ? "Your name" : `Rename ${who}`;
+  const others = profile.people.filter(n => n !== who);
+  $("o-people").innerHTML = others.length ? others.map(n=>`<span class="chip">${esc(n)}<button class="x" data-rm="${esc(n)}" aria-label="Remove ${esc(n)}">×</button></span>`).join("") : `<span class="small muted">No one yet. Add a name to train together, or so they can use the app on their own phone.</span>`;
+  $("o-people").querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click", async ()=>{ const gone = b.dataset.rm; if (personSessions(gone).length && !confirm(`Remove ${gone}? Their ${personSessions(gone).length} logged session(s) stay on record but won't show anywhere until the name is added back.`)) return; profile.people = profile.people.filter(n=>n!==gone); joiners.delete(gone); await saveProfile(); renderAll(); }));
 }
-// Renaming the owner rewrites the name inside every saved session so history follows the person.
-async function renameOwner(){
-  const v = $("o-me").value.trim().slice(0,20); if (!v) { toast("Enter your name first"); return; }
-  const old = profile.people[0]; if (v === old) { toast("Already saved"); return; }
-  if (profile.people.slice(1).some(p=>p.toLowerCase()===v.toLowerCase())) { toast(`${v} is already a family member.`); return; }
-  profile.people[0] = v;
-  const changed = [];
-  for (const rec of Object.values(sessions)) { let hit = false;
-    if (Array.isArray(rec.who) && rec.who.includes(old)) { rec.who = rec.who.map(n => n === old ? v : n); hit = true; }
-    if (rec.backs && rec.backs[old] !== undefined) { rec.backs[v] = rec.backs[old]; delete rec.backs[old]; hit = true; }
+// Renaming rewrites the name inside every saved record (and the plan) so history follows the person.
+async function renamePerson(old, v){
+  if (profile.people.some(p=>p!==old && p.toLowerCase()===v.toLowerCase())) { toast(`${v} is already on the list.`); return false; }
+  profile.people = profile.people.map(n => n === old ? v : n);
+  if (profile.plans[old]) { profile.plans[v] = profile.plans[old]; delete profile.plans[old]; }
+  const changed = [], removed = [];
+  for (const [k, rec] of Object.entries(sessions)) { let hit = false;
+    if (rec.name === old) { delete sessions[k]; removed.push(k); rec.name = v; sessions[sid(rec.date, v)] = rec; hit = true; }
+    if (Array.isArray(rec.with) && rec.with.includes(old)) { rec.with = rec.with.map(n => n === old ? v : n); hit = true; }
     if (hit) changed.push(rec); }
+  if (deviceMe === old) { deviceMe = v; try { localStorage.setItem("coreten.me", v); } catch(e){} }
   if (viewAs === old) { viewAs = v; try { localStorage.setItem("coreten.viewAs", v); } catch(e){} }
-  await saveProfile(); for (const r of changed) await persistSession(r); if (changed.length && storage !== "db") await persistSession(changed[0]);
-  renderAll(); toast(`Saved as ${v}`);
+  if (joiners.has(old)) { joiners.delete(old); joiners.add(v); saveJoiners(); }
+  await saveProfile();
+  if (storage === "db") { try { for (const k of removed) await store.doc("sessions/" + k).delete(); } catch(e){} for (const r of changed) await persistSession(r); }
+  else if (changed.length) await persistSession(changed[0]);
+  return true;
+}
+async function renameMe(){
+  const v = $("o-me").value.trim().slice(0,20); if (!v) { toast("Enter a name first"); return; }
+  const old = me(); if (v === old) { toast("Already saved"); return; }
+  if (await renamePerson(old, v)) { renderAll(); toast(`Saved as ${v}`); }
+}
+/* ---- First run on a device: who is this? ---- */
+function openWhoSheet(fresh){
+  if (!$("who").hidden) return;
+  $("who-title").textContent = fresh ? "Welcome" : "Who's using this phone?";
+  $("who-lead").textContent = fresh ? "What's your name? Your sessions, plan and streak are filed under it." : "Pick your name so this phone runs your plan. Add yourself if you're new.";
+  $("who-list").innerHTML = fresh ? "" : profile.people.map(n=>`<button type="button" class="chip" data-who="${esc(n)}">${esc(n)}</button>`).join("");
+  $("who-list").querySelectorAll("[data-who]").forEach(b=>b.addEventListener("click", ()=>{ setMe(b.dataset.who); closeWho(); }));
+  $("who-name").value = ""; $("who").hidden = false; document.body.style.overflow = "hidden"; setTimeout(()=>$("who-name").focus(), 50);
+}
+function closeWho(){ $("who").hidden = true; document.body.style.overflow = ""; }
+async function whoAddNew(){
+  const v = $("who-name").value.trim().slice(0,20); if (!v) { toast("Enter a name"); return; }
+  const existing = profile.people.find(p=>p.toLowerCase()===v.toLowerCase());
+  if (existing) { setMe(existing); closeWho(); return; }
+  if (profile.people.length === 1 && profile.people[0] === "Me") { await renamePerson("Me", v); }
+  else { if (profile.people.length >= 8) { toast("Eight is plenty."); return; } profile.people.push(v); await saveProfile(); }
+  setMe(v); closeWho(); toast(`Hi ${v}`);
 }
 /* ---- Who's training today: ticked on the Today screen before starting, carried into the session and its check-in. ---- */
 let joiners = new Set(); try { const j = JSON.parse(localStorage.getItem("coreten.joiners") || "null"); if (j && j.date === todayKey()) joiners = new Set(j.names); } catch(e){}
@@ -1857,8 +1919,9 @@ function saveJoiners(){ try { localStorage.setItem("coreten.joiners", JSON.strin
 function renderJoiners(){
   const el = $("h-join"); el.hidden = profile.people.length < 2; if (el.hidden) return;
   for (const n of [...joiners]) if (!profile.people.includes(n)) joiners.delete(n);
-  el.innerHTML = `<span class="small muted" style="align-self:center">Training today</span><span class="chip sm" aria-pressed="true" title="That's you">✓ ${esc(profile.people[0])}</span>` +
-    profile.people.slice(1).map(n=>`<button type="button" class="chip sm" data-join="${esc(n)}" aria-pressed="${joiners.has(n)}">${joiners.has(n)?"✓ ":"+ "}${esc(n)}</button>`).join("");
+  const who = me(); joiners.delete(who);
+  el.innerHTML = `<span class="small muted" style="align-self:center">Training today</span><span class="chip sm" aria-pressed="true" title="That's you">✓ ${esc(who)}</span>` +
+    profile.people.filter(n=>n!==who).map(n=>`<button type="button" class="chip sm" data-join="${esc(n)}" aria-pressed="${joiners.has(n)}">${joiners.has(n)?"✓ ":"+ "}${esc(n)}</button>`).join("");
   el.querySelectorAll("[data-join]").forEach(b=>b.addEventListener("click", ()=>{ const n = b.dataset.join; if (joiners.has(n)) joiners.delete(n); else joiners.add(n); saveJoiners(); renderJoiners(); }));
 }
 async function addPerson(){
@@ -1945,7 +2008,7 @@ function printGuide(){
 }
 
 async function setBlock(n){
-  profile.block = n; profile.blockStart = todayKey(); await saveProfile(); renderAll(); showView("home"); toast(`Block ${n} · ${BLOCKS[n-1].name} starts today`);
+  const pl = plan(me()); pl.block = n; pl.blockStart = todayKey(); await saveProfile(); renderAll(); showView("home"); toast(`Block ${n} · ${BLOCKS[n-1].name} starts today`);
 }
 
 /* ============================ SESSION ============================ */
@@ -1966,8 +2029,8 @@ function beep(kind){
 }
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
 async function startSession(){
-  const B = BLOCKS[profile.block-1]; const day = todayDay();
-  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: profile.block, who: [profile.people[0], ...profile.people.slice(1).filter(n=>joiners.has(n))] };
+  const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who);
+  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: pl.block, who: [who, ...profile.people.filter(n=>n!==who && joiners.has(n))] };
   showView("session");
   renderStep();
   clearInterval(tick); tick = setInterval(tickFn, 1000);
@@ -2034,8 +2097,8 @@ function finishSession(){
   $("c-note").value = "";
   // Roster: everyone pre-selected when it was a TV session, otherwise just you.
   $("c-who-wrap").hidden = profile.people.length < 2;
-  const pre = new Set(ses && ses.who ? ses.who : [profile.people[0]]);
-  $("c-who").innerHTML = profile.people.map((n,i)=>`<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${(i===0||pre.has(n))?"true":"false"}">${esc(n)}</button>`).join("");
+  const pre = new Set(ses && ses.who ? ses.who : [me()]);
+  $("c-who").innerHTML = profile.people.map(n=>`<button type="button" class="chip" data-p="${esc(n)}" aria-pressed="${(n===me()||pre.has(n))?"true":"false"}">${esc(n)}</button>`).join("");
   $("c-who").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ b.setAttribute("aria-pressed", b.getAttribute("aria-pressed")==="true"?"false":"true"); renderCheckinBacks(); }));
   renderCheckinBacks();
   showView("checkin");
@@ -2089,8 +2152,10 @@ function bindUI(){
   if (isStandalone()) $("g-pdf-link").hidden = true;
   renderGuide();
   $("o-person").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); addPerson(); } });
-  $("o-me-save").addEventListener("click", renameOwner);
-  $("o-me").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); renameOwner(); } });
+  $("o-me-save").addEventListener("click", renameMe);
+  $("o-me").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); renameMe(); } });
+  $("who-add").addEventListener("click", whoAddNew);
+  $("who-name").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); whoAddNew(); } });
   document.body.classList.toggle("tv", tv); $("s-tv").setAttribute("aria-pressed", String(tv));
   $("s-pause").addEventListener("click", ()=>{ if (ses.phase==="preview") return; ses.running=!ses.running; renderClock(); });
   $("s-skip").addEventListener("click", ()=>{ if (ses.phase==="preview") { beginStep(); return; } if (ses.phase==="ready") { ses.phase="work"; ses.remaining=ses.steps[ses.i][1]; renderClock(); } else nextStep(); });
@@ -2099,19 +2164,19 @@ function bindUI(){
   $("s-quit").addEventListener("click", quitSession);
   $("c-choice").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ $("c-choice").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); }));
   $("c-save").addEventListener("click", async ()=>{
-    const who = [...$("c-who").querySelectorAll('[aria-pressed="true"]')].map(b=>b.dataset.p); if (!who.length) who.push(profile.people[0]);
+    const who = [...$("c-who").querySelectorAll('[aria-pressed="true"]')].map(b=>b.dataset.p); if (!who.length) who.push(me());
     const backs = {}; const multi = who.length > 1;
     if (multi) { $("c-backs").querySelectorAll("[data-person]").forEach(row=>{ backs[row.dataset.person] = row.querySelector('[aria-pressed="true"]')?.dataset.v || ""; }); }
     else backs[who[0]] = $("c-choice").querySelector('[aria-pressed="true"]')?.dataset.v || "";
-    const pick = backs[profile.people[0]] || "";
-    const rec = { date: todayKey(), block: ses.block, day: ses.day, secs: ses.elapsed, back: pick, backs, note: $("c-note").value.trim().slice(0,300), who, at: new Date().toISOString() };
+    const note = $("c-note").value.trim().slice(0,300), at = new Date().toISOString();
     $("c-save").disabled = true;
-    await saveSession(rec);
+    // One record per person: the session as performed (this phone's block/day), filed under each name with their own check-in.
+    for (const n of who) await saveSession({ date: todayKey(), name: n, block: ses.block, day: ses.day, secs: ses.elapsed, back: backs[n] || "", note, with: who.filter(x=>x!==n), at });
     $("c-save").disabled = false;
     ses = null; renderAll(); showView("home"); toast(`Saved. ${nextTrainingLabel()}`);
   });
   $("o-sound").addEventListener("change", async e=>{ profile.sound = e.target.checked; await saveProfile(); });
-  $("o-reset-block").addEventListener("click", async ()=>{ profile.blockStart = todayKey(); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
+  $("o-reset-block").addEventListener("click", async ()=>{ plan(me()).blockStart = todayKey(); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
   window.addEventListener("resize", ()=>{ if (sfig && sfig.render) sfig.render(); });
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && sync.token && (!sync.last || Date.now() - new Date(sync.last) > 60000)) syncNow("auto"); });
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && ses && wake===null) navigator.wakeLock?.request("screen").then(w=>wake=w).catch(()=>{}); });
