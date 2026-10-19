@@ -824,7 +824,7 @@ function guideHTML(key, opts = {}){
   const e = EX[key], g = GUIDE[key]; if (!g) return "";
   const mv = (typeof MQ !== "undefined" && MQ.MOVES && MQ.MOVES[key]) || null;
   const figure = opts.frames && mv
-    ? `<div class="g-frames"${mv.length > 2 ? ` style="grid-template-columns:repeat(${mv.length},1fr)"` : ""}>${mv.map((f,i)=>{ const nm = i === 0 ? "Start" : i === mv.length - 1 ? "End" : "Then"; return `<figure class="frame"><canvas class="mq frame" data-key="${key}" data-phase="${i}" aria-label="${e.name}, ${nm.toLowerCase()} position"></canvas><figcaption><b>${nm}</b> ${f.l}</figcaption></figure>`; }).join("")}</div>`
+    ? (() => { const shown = mv.map((f, i) => ({ f, i })).filter(x => !x.f.skip); return `<div class="g-frames"${shown.length > 2 ? ` style="grid-template-columns:repeat(${shown.length},1fr)"` : ""}>${shown.map(({ f, i }, j) => { const nm = f.tag || (j === 0 ? "Start" : j === shown.length - 1 ? "End" : "Then"); return `<figure class="frame"><canvas class="mq frame" data-key="${key}" data-phase="${i}" aria-label="${e.name}, ${nm.toLowerCase()} position"></canvas><figcaption><b>${nm}</b> ${f.l.replace(/ · other side$/, "")}</figcaption></figure>`; }).join("")}</div>`; })()
     : `<div class="mqwrap"><canvas class="mq" data-key="${key}" aria-label="${e.name}: translucent figure moving between start and end positions, working muscles highlighted"></canvas><span class="mqhint">Drag to turn</span></div>
        ${mv ? `<div class="g-phase"><button class="btn ghost sm" data-play aria-label="Pause or play the movement">❚❚</button><span class="g-phase-l" aria-live="polite">${mv[0].l}</span></div>` : ""}`;
   const maps = ["map_front","map_back"].map((k,i)=>`<figure class="map"><canvas class="mq map" data-key="${k}" data-ex="${key}" aria-label="${i?"Back":"Front"} view with working muscles highlighted"></canvas><figcaption>${i?"Back":"Front"}</figcaption></figure>`).join("");
@@ -1035,6 +1035,13 @@ const MQ = (() => {
   };
   const CONTACT = {"catcow": [["hand_l", "hand_r", "calf_l", "calf_r"], ["hand_l", "hand_r", "calf_l", "calf_r"]], "tilt": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"]], "curlup": [["head", "pelvis", "ball_l", "calf_r"], ["pelvis", "ball_l", "calf_r"]], "curlup2": [["head", "pelvis", "ball_l", "calf_r"], ["pelvis", "ball_l", "calf_r"]], "birddog": [["hand_l", "hand_r", "calf_l", "calf_r"], ["hand_r", "calf_l"]], "birddog2": [["hand_r", "calf_l"], ["hand_r", "calf_l"]], "bridge": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "ball_l", "ball_r"]], "bridge_h": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "ball_l", "ball_r"]], "bridge_1": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l"], ["head", "upperarm_l", "upperarm_r", "ball_l"]], "deadbug": [["head", "pelvis"], ["head", "pelvis"]], "deadbug2": [["head", "pelvis"], ["head", "pelvis", "foot_r"]], "hinge": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "hinge2": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "plank": [["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"], ["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"]], "plank_f": [["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"], ["lowerarm_l", "lowerarm_r", "ball_l", "ball_r"]], "hollow": [["head", "pelvis"], ["pelvis"]], "rlunge": [["ball_l", "ball_r"], ["ball_l", "calf_r"]], "wallsit": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "knees": [["head", "pelvis", "ball_l", "ball_r"], ["head", "pelvis"]], "hipflex": [["ball_l", "calf_r"], ["ball_l", "calf_r"]], "child": [["calf_l", "calf_r", "foot_l", "foot_r"], ["calf_l", "calf_r", "hand_l", "hand_r"]], "figure4": [["head", "pelvis", "ball_l"], ["head", "pelvis"]], "walk": [["ball_l"], ["ball_r"]]};
   for (const [k, [a, b]] of Object.entries(CONTACT)) { if (MOVES[k]) { MOVES[k][0].p = { ...MOVES[k][0].p, contact: a }; MOVES[k][1].p = { ...MOVES[k][1].p, contact: b }; } }
+  // Moves that alternate sides: play side A, return, then the mirror image, and loop (instead of bouncing back and forth on one side).
+  // Frames marked `skip` are repeats and stay out of the printed start/end figures; `tag` names the mirrored frame there.
+  const other = (f, tag) => ({ l: f.l + " · other side", p: mirrorLR(f.p), tag: tag || "Other side" });
+  const rep = f => ({ l: f.l, p: { ...f.p }, skip: true });
+  for (const k of ["birddog", "deadbug", "deadbug2", "rlunge"]) { const [a, b] = MOVES[k]; MOVES[k] = [a, b, rep(a), other(b)]; MOVES[k].loop = true; }
+  { const [reach, sweep] = MOVES.birddog2; const rest = { l: "All fours", p: { ...MOVES.birddog[0].p }, skip: true };
+    MOVES.birddog2 = [reach, sweep, rep(reach), rest, other(reach, "Other side"), other(sweep, "Other side · sweep"), rep(other(reach)), { ...rest }]; MOVES.birddog2.loop = true; }
   const WALLS = { wallsit: -0.70, hinge: -0.42 };
   const CAM = { stand: [[2.4, 1.4, 3.4], [0, 0.82, 0]], back: [[0.95, 1.7, 2.6], [0, 0.3, 0]], prone: [[0.75, 1.6, 2.7], [0, 0.35, 0]], side: [[0.65, 1.3, 2.9], [0, 0.3, 0]] };
 
@@ -1448,11 +1455,11 @@ const H3 = (() => {
     // Keyframes play 0→1→…→n-1 and back; each move takes SEG ms with a HOLD ms pause on every keyframe (2 frames: the old 3.6 s cycle).
     const SEG = 1400, HOLD = 400;
     const ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
-    const where = (now, n) => { const segs = Math.max(1, 2 * (n - 1)), L = SEG + HOLD; const u = (now - t0) % (segs * L); const k = Math.floor(u / L); const w = u - k * L;
-      const a = k < n - 1 ? k : 2 * (n - 1) - k, b = k < n - 1 ? a + 1 : a - 1; const s = w < HOLD ? 0 : ease((w - HOLD) / SEG); return { a, b, s }; };
+    const where = (now, n, loop) => { const segs = loop ? n : Math.max(1, 2 * (n - 1)), L = SEG + HOLD; const u = (now - t0) % (segs * L); const k = Math.floor(u / L); const w = u - k * L;
+      const a = loop ? k : (k < n - 1 ? k : 2 * (n - 1) - k), b = loop ? (k + 1) % n : (k < n - 1 ? a + 1 : a - 1); const s = w < HOLD ? 0 : ease((w - HOLD) / SEG); return { a, b, s }; };
     let paused = 0;
     const frame = () => { raf = 0; const now = performance.now(); const mv = movesOf(key); let pose, ph = 0;
-      if (mv) { const { a, b, s } = where(now, mv.length); pose = lerpPose(mv[a].p, mv[b].p, s); ph = s < 0.5 ? a : b; } else pose = poseOf(key, 1);
+      if (mv) { const { a, b, s } = where(now, mv.length, !!mv.loop); pose = lerpPose(mv[a].p, mv[b].p, s); ph = s < 0.5 ? a : b; } else pose = poseOf(key, 1);
       drawTo(canvas, key, pri, sec, yaw, dark(), { labels: true, fit: true, pose, fitPoses: mv ? mv.map(f => f.p) : null, anchor });
       if (mv && onPhase && ph !== lastT) { lastT = ph; onPhase(mv[ph].l, ph); }
       if (playing && mv && canvas.isConnected) raf = requestAnimationFrame(frame); };
