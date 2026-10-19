@@ -60,16 +60,23 @@ main{flex:1;padding:16px 0 90px}
 .pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12.5px;font-weight:600;letter-spacing:.03em;background:var(--accent-soft);color:var(--accent)}
 
 /* --- week dots --- */
+.week-month{font-family:var(--display);font-size:18px;font-weight:600;color:var(--ink);letter-spacing:.02em;margin-bottom:-6px}
 .week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.day{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
-.dot{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:600}
+.day{display:flex;flex-direction:column;align-items:center;gap:5px}
+.day .wd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.dot{position:relative;width:36px;height:36px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-family:var(--display);font-size:15px;font-weight:600;color:var(--ink);background:var(--panel)}
 .dot.done{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.dot.today{border-color:var(--accent)}
+.dot.today:not(.done){border-width:2.5px;border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.dot.today.done{box-shadow:0 0 0 3px var(--accent-soft)}
 .dot.rest{border-style:dashed;color:var(--ink-2)}
-.dot.rest::before{content:"";width:9px;height:2px;border-radius:1px;background:var(--ink-2)}
-.dot.rest.done::before{display:none}
+.dot i{position:absolute;right:-5px;top:-5px;width:15px;height:15px;border-radius:50%;background:var(--panel);border:1.5px solid var(--accent);color:var(--accent);font-style:normal;font-size:9px;line-height:1;display:grid;place-items:center}
+@media (max-width:360px){ .dot{width:32px;height:32px;font-size:14px} }
 
 /* --- rest-day toggles --- */
+.seg{display:inline-flex;border:2px solid var(--line);border-radius:10px;overflow:hidden;align-self:flex-start}
+.seg button{padding:8px 16px;font-family:var(--display);font-weight:600;font-size:15px;color:var(--ink-2);background:var(--panel);border:0;cursor:pointer}
+.seg button+button{border-left:2px solid var(--line)}
+.seg button[aria-checked="true"]{background:var(--accent-soft);color:var(--accent)}
 .days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .days button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 6px;border:2px solid var(--line);border-radius:10px;font-family:var(--display);font-size:16px;font-weight:600;color:var(--ink-2);background:var(--panel)}
 .days button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
@@ -281,6 +288,7 @@ body.tv.in-session .top .gear{display:none}
           <div class="big" id="h-title">Session A</div>
           <p class="muted" id="h-desc">Stability. Learn the brace and the three base patterns.</p>
         </div>
+        <div class="week-month" id="h-month">October 2026</div>
         <div class="week" id="h-week-dots"></div>
         <button class="btn" id="h-start">Start today's 10 minutes</button>
         <p class="small muted" id="h-status"></p>
@@ -428,6 +436,11 @@ body.tv.in-session .top .gear{display:none}
           <p class="small" style="margin-bottom:8px">Rest days <span class="muted" id="o-rest-count"></span></p>
           <div class="days" id="o-rest" role="group" aria-label="Rest days"></div>
           <p class="small muted" style="margin-top:8px">Rest days don't break the streak and don't count against the week.</p>
+        </div>
+        <div class="stack" style="gap:8px">
+          <p class="small">Week starts on</p>
+          <div class="seg" id="o-weekstart" role="radiogroup" aria-label="Week starts on"><button type="button" data-ws="1" role="radio">Monday</button><button type="button" data-ws="0" role="radio">Sunday</button></div>
+          <p class="small muted">Changes the week strip and the "this week" count. Rest days and streaks are unaffected.</p>
         </div>
         <div class="stack" style="gap:8px">
           <p class="small">Family <span class="muted">· who shows up at the check-in</span></p>
@@ -928,7 +941,9 @@ const MQ = (() => {
     knees:   { orient: "back", y: 0.17, hipL: { flex: 120 }, hipR: { flex: 120 }, knL: 130, knR: 130, shL: { flex: 70, abd: 18 }, shR: { flex: 70, abd: 18 }, elL: 100, elR: 100, hands: { L: GRIP, R: GRIP } },
     hipflex: { orient: "stand", y: 0.5, hipL: { flex: 90 }, knL: 90, hipR: { flex: -5 }, knR: 85, shL: { flex: 5 }, shR: { flex: 5 }, anR: -60 },
     child:   { orient: "stand", y: 0.3, pitch: 85, spine: 15, hipL: { flex: 130, abd: 12 }, hipR: { flex: 130, abd: 12 }, knL: 145, knR: 145, shL: { flex: 160 }, shR: { flex: 160 }, neck: 10, anL: -60, anR: -60, hands: { L: PALM, R: PALM } },
-    figure4: { ...onBack, hipR: { flex: 100, abd: 60 }, knR: 90, hipL: { flex: 85 }, knL: 110, shL: { flex: 20, abd: 5 }, elL: 0, shR: { flex: 20, abd: 5 }, elR: 0, hands: { L: { curl: 0.8 }, R: { curl: 0.8 } } },
+    // Figure-4: right ankle rests on the left thigh just above the knee, right knee turned out. The hip `rot` (external rotation about
+    // the thigh's own axis) is what lays the shin across; values were solved numerically for this rig, not anatomical degrees.
+    figure4: { ...onBack, hipR: { flex: 65, abd: 25, rot: 160 }, knR: 105, hipL: { flex: 95 }, knL: 100, shL: { flex: 62, abd: 10 }, elL: 25, shR: { flex: 62, abd: 10 }, elR: 25, hands: { L: GRIP, R: GRIP } },
     walk:    { orient: "stand", y: 0.98, hipL: { flex: 25 }, knL: 15, hipR: { flex: -15 }, knR: 25, shL: { flex: -25 }, shR: { flex: 30 }, elL: 25, elR: 40 },
     // neutral standing views used for the front/back muscle maps
     map_front: { orient: "stand", y: 0.98, shL: { abd: 14 }, shR: { abd: 14 }, elL: 8, elR: 8 },
@@ -967,7 +982,7 @@ const MQ = (() => {
     knees:   [{ l: "Lie down", p: { ...onBack, contact: ["head","pelvis","ball_l","ball_r"] } }, { l: "Hug the knees in", p: { ...S.knees, shL: { flex: 20, abd: 5 }, shR: { flex: 20, abd: 5 }, elL: 30, elR: 30 } }],
     hipflex: [{ l: "Half kneel", p: { ...S.hipflex } }, { l: "Tuck the tailbone · shift forward", p: { ...S.hipflex, pitch: 6, pelvis: -12, hipR: { flex: -18 }, knR: 66, hipL: { flex: 100 }, knL: 85 } }],
     child:   [{ l: "Kneel · sit back", p: { orient: "stand", y: 0.6, hipL: { flex: 0, abd: 12 }, hipR: { flex: 0, abd: 12 }, knL: 92, knR: 92, shL: { abd: 10 }, shR: { abd: 10 }, elL: 8, elR: 8, anL: -60, anR: -60 } }, { l: "Fold forward · arms long", p: { ...S.child } }],
-    figure4: [{ l: "Ankle on the opposite knee", p: { ...onBack, hipR: { flex: 85, abd: 60 }, knR: 90, hipL: { flex: 60 }, knL: 128, contact: ["head","pelvis","ball_l"] } }, { l: "Pull the thigh in", p: { ...S.figure4, contact: ["head","pelvis"] } }],
+    figure4: [{ l: "Ankle on the opposite knee", p: { ...onBack, hipR: { flex: 55, abd: 35, rot: 140 }, knR: 105, hipL: { flex: 60 }, knL: 128, contact: ["head","pelvis","ball_l"] } }, { l: "Pull the thigh in", p: { ...S.figure4, contact: ["head","pelvis"] } }],
     walk:    [{ l: "", p: { ...S.walk } }, { l: "", p: { ...S.walk, hipL: { flex: -15 }, knL: 25, hipR: { flex: 25 }, knR: 15, shL: { flex: 30 }, shR: { flex: -25 }, elL: 40, elR: 25 } }],
   };
   const CONTACT = {"catcow": [["hand_l", "hand_r", "calf_l", "calf_r"], ["hand_l", "hand_r", "calf_l", "calf_r"]], "tilt": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"]], "curlup": [["head", "pelvis", "ball_l", "calf_r"], ["pelvis", "ball_l", "calf_r"]], "curlup2": [["head", "pelvis", "ball_l", "calf_r"], ["pelvis", "ball_l", "calf_r"]], "birddog": [["hand_l", "hand_r", "calf_l", "calf_r"], ["hand_r", "calf_l"]], "birddog2": [["hand_r", "calf_l"], ["hand_r", "calf_l"]], "bridge": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "ball_l", "ball_r"]], "bridge_h": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l", "ball_r"], ["head", "upperarm_l", "upperarm_r", "ball_l", "ball_r"]], "bridge_1": [["head", "upperarm_l", "upperarm_r", "pelvis", "ball_l"], ["head", "upperarm_l", "upperarm_r", "ball_l"]], "deadbug": [["head", "pelvis"], ["head", "pelvis"]], "deadbug2": [["head", "pelvis"], ["head", "pelvis", "foot_r"]], "hinge": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "hinge2": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "plank": [["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"], ["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"]], "plank_f": [["lowerarm_l", "lowerarm_r", "calf_l", "calf_r"], ["lowerarm_l", "lowerarm_r", "ball_l", "ball_r"]], "hollow": [["head", "pelvis"], ["pelvis"]], "rlunge": [["ball_l", "ball_r"], ["ball_l", "calf_r"]], "wallsit": [["ball_l", "ball_r"], ["ball_l", "ball_r"]], "knees": [["head", "pelvis", "ball_l", "ball_r"], ["head", "pelvis"]], "hipflex": [["ball_l", "calf_r"], ["ball_l", "calf_r"]], "child": [["calf_l", "calf_r", "foot_l", "foot_r"], ["calf_l", "calf_r", "hand_l", "hand_r"]], "figure4": [["head", "pelvis", "ball_l"], ["head", "pelvis"]], "walk": [["ball_l"], ["ball_r"]]};
@@ -1165,10 +1180,11 @@ const H3 = (() => {
   const ARM_REST = d2r(41); // the model's arms hang 41° out from vertical (A-pose)
   const ELBOW_REST = 47;      // and its forearms rest bent 47° forward
   function boneRots(P) { // body-space rotation per bone name
-    const g = (k, d) => (P[k] === undefined ? d : P[k]); const lim = k => Object.assign({ flex: 0, abd: 0 }, P[k] || {});
+    const g = (k, d) => (P[k] === undefined ? d : P[k]); const lim = k => Object.assign({ flex: 0, abd: 0, rot: 0 }, P[k] || {});
     const sh = (k, s) => { const v = lim(k); return chain(RZ(d2r(s * v.abd)), RX(d2r(-v.flex)), RZ(-s * ARM_REST)); };
     const pv = g("pelvis", 0); // pelvic tilt: + = anterior (tailbone lifts), - = posterior (tailbone tucks). Thighs compensate so the legs stay put.
-    const hip = (k, s) => { const v = lim(k); return mul(RZ(d2r(s * v.abd)), RX(d2r(-(v.flex + pv)))); };
+    // hip: flex (thigh toward chest), abd (knee out), rot (turn about the thigh's own axis; + = knee rolls outward / external rotation)
+    const hip = (k, s) => { const v = lim(k); return chain(RZ(d2r(s * v.abd)), RX(d2r(-(v.flex + pv))), RY(d2r(s * v.rot))); };
     const sp = d2r(g("spine", 0)), bd = d2r(g("bend", 0)), nk = d2r(g("neck", 0));
     const ch = d2r(g("chest", 0)); // counter-rotation at the upper spine: makes a curve instead of a tilt
     return { pelvis: RX(d2r(pv)), spine_01: mul(RZ(bd), RX(sp * 0.45)), spine_02: RX(sp * 0.35), spine_03: RX(sp * 0.2 + ch), neck_01: RX(nk * 0.6), head: RX(nk * 0.4),
@@ -1410,7 +1426,7 @@ const fmtClock = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 const addDays = (k, n) => { const d = new Date(k+"T12:00:00"); d.setDate(d.getDate()+n); return todayKey(d); };
 
 const DEFAULT_REST = [1,3]; // getDay() numbers: Mon, Wed
-let profile = { startDate: todayKey(), block: 1, blockStart: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], music: "", sound: true };
+let profile = { startDate: todayKey(), block: 1, blockStart: todayKey(), restDays: DEFAULT_REST.slice(), people: ["Me"], music: "", sound: true, weekStart: 1 };
 // Older profiles stored restSunday:boolean. Convert once, in memory; the next save writes restDays and drops the old flag.
 function migrateProfile(p){
   const out = { ...p };
@@ -1421,6 +1437,7 @@ function migrateProfile(p){
   out.people = [...new Set(out.people.map(s=>String(s).trim().slice(0,20)).filter(Boolean))];
   if (!out.people.length) out.people = ["Me"];
   out.music = cleanMusicUrl(out.music);
+  out.weekStart = out.weekStart === 0 ? 0 : 1; // 1 = Monday (default), 0 = Sunday
   return out;
 }
 // Music hand-off: a saved playlist link that opens in its app (Apple Music, Spotify, YouTube Music). The page itself can't stream.
@@ -1614,10 +1631,14 @@ function weekOfBlock(){ const ms = new Date(todayKey()+"T12:00:00") - new Date(p
 function todayDay(){ // alternate A/B by count of sessions in this block
   return blockSessions() % 2 === 0 ? "A" : "B";
 }
-function weekKeys(){ // Mon..Sun of current week
-  const d = new Date(todayKey()+"T12:00:00"); const dow = (d.getDay()+6)%7; const mon = addDays(todayKey(), -dow);
-  return Array.from({length:7}, (_,i)=>addDays(mon,i));
+function weekKeys(){ // the 7 days of the current week, starting on profile.weekStart (1 = Monday, 0 = Sunday)
+  const d = new Date(todayKey()+"T12:00:00"); const dow = (d.getDay() - (profile.weekStart||0) + 7) % 7; const first = addDays(todayKey(), -dow);
+  return Array.from({length:7}, (_,i)=>addDays(first,i));
 }
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function weekMonthLabel(wk){ const a = new Date(wk[0]+"T12:00:00"), b = new Date(wk[6]+"T12:00:00");
+  return a.getMonth() === b.getMonth() ? `${MONTHS[a.getMonth()]} ${a.getFullYear()}` : `${MONTHS[a.getMonth()].slice(0,3)} – ${MONTHS[b.getMonth()].slice(0,3)} ${b.getFullYear()}`; }
 function isRestKey(k){ return profile.restDays.includes(new Date(k+"T12:00:00").getDay()); }
 function isRestToday(){ return isRestKey(todayKey()); }
 function weekTarget(){ return 7 - profile.restDays.length; }
@@ -1643,9 +1664,10 @@ function renderHome(){
   const done = !!sessions[todayKey()]; const rest = isRestToday();
   $("h-title").textContent = rest && !done ? "Rest day" : S.title;
   $("h-desc").textContent = rest && !done ? `No session planned today. ${S.title} is queued below if you want it anyway.` : S.desc;
-  const wk = weekKeys(); const names = ["M","T","W","T","F","S","S"];
-  $("h-week-dots").innerHTML = wk.map((k,i)=>{ const r = isRestKey(k); const d = !!sessions[k];
-    return `<div class="day"><div class="dot ${d?"done":""} ${r?"rest":""} ${k===todayKey()?"today":""}" title="${r?"Rest day":""}">${d?"✓":""}</div>${names[i]}</div>`; }).join("");
+  const wk = weekKeys();
+  $("h-month").textContent = weekMonthLabel(wk);
+  $("h-week-dots").innerHTML = wk.map(k=>{ const r = isRestKey(k); const d = !!sessions[k]; const dt = new Date(k+"T12:00:00"); const today = k===todayKey();
+    return `<div class="day"><span class="wd">${DOW_SHORT[dt.getDay()]}</span><div class="dot ${d?"done":""} ${r?"rest":""} ${today?"today":""}" title="${r?"Rest day":""}${d?" · done":""}${today?" · today":""}" aria-label="${DOW_SHORT[dt.getDay()]} ${dt.getDate()}${r?", rest day":""}${d?", done":""}${today?", today":""}">${dt.getDate()}${d?'<i aria-hidden="true">✓</i>':""}</div></div>`; }).join("");
   const total = S.steps.reduce((a,s)=>a+s[1],0);
   $("h-steps").innerHTML = S.steps.map(([k,sec])=>`<div class="step"><span class="t num">${fmtClock(sec)}</span><div><div class="n">${EX[k].name}</div><div class="d">${EX[k].dose}</div></div><button class="info" data-info="${k}" aria-label="How to do ${EX[k].name}">i</button></div>`).join("");
   $("h-steps").querySelectorAll("[data-info]").forEach(b=>b.addEventListener("click",()=>openSheet(b.dataset.info)));
@@ -1711,10 +1733,12 @@ async function addPerson(){
 }
 const DAY_LABELS = [["M","Mon"],["T","Tue"],["W","Wed"],["T","Thu"],["F","Fri"],["S","Sat"],["S","Sun"]]; // Mon-first display
 function renderRestToggles(){
-  $("o-rest").innerHTML = DAY_LABELS.map(([l,full],i)=>{ const dow = (i+1)%7; const on = profile.restDays.includes(dow);
+  const order = profile.weekStart === 0 ? [6,0,1,2,3,4,5] : [0,1,2,3,4,5,6]; // follow the week-start setting
+  $("o-rest").innerHTML = order.map(i=>{ const [l,full] = DAY_LABELS[i]; const dow = (i+1)%7; const on = profile.restDays.includes(dow);
     return `<button type="button" data-dow="${dow}" aria-pressed="${on}" aria-label="${full}${on?" is a rest day":""}">${l}<small>${on?"rest":""}</small></button>`; }).join("");
   $("o-rest").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>toggleRest(+b.dataset.dow)));
   $("o-rest-count").textContent = `· ${weekTarget()} session${weekTarget()===1?"":"s"}/week`;
+  $("o-weekstart").querySelectorAll("button").forEach(b=>{ b.setAttribute("aria-checked", String(+b.dataset.ws === (profile.weekStart||0))); if (!b._wired) { b._wired = true; b.addEventListener("click", async ()=>{ profile.weekStart = +b.dataset.ws; await saveProfile(); renderAll(); }); } });
 }
 async function toggleRest(dow){
   const set = new Set(profile.restDays);
