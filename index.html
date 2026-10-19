@@ -458,9 +458,9 @@ body.tv.in-session .top .gear{display:none}
     <div class="row" style="justify-content:space-between"><span class="eyebrow" id="settings-title">Settings</span><button class="btn ghost sm" id="settings-close">Done</button></div>
     <div class="stack" id="settings-body">
         <div>
-          <p class="small" style="margin-bottom:8px">Rest days <span class="muted" id="o-rest-count"></span></p>
+          <p class="small" style="margin-bottom:8px"><span id="o-rest-who"></span> Rest days <span class="muted" id="o-rest-count"></span></p>
           <div class="days" id="o-rest" role="group" aria-label="Rest days"></div>
-          <p class="small muted" style="margin-top:8px">Rest days don't break the streak and don't count against the week.</p>
+          <p class="small muted" style="margin-top:8px">Rest days don't break the streak and don't count against the week. Each person sets their own; this edits the plan of whoever this phone belongs to.</p>
         </div>
         <div class="stack" style="gap:8px">
           <p class="small">Week starts on</p>
@@ -1480,7 +1480,9 @@ function migrateProfile(p){
   if (!out.plans || typeof out.plans !== "object") out.plans = {};
   if (out.block && !out.plans[out.people[0]]) out.plans[out.people[0]] = { block: out.block, blockStart: out.blockStart || todayKey() };
   delete out.block; delete out.blockStart;
-  for (const [n, pl] of Object.entries(out.plans)) { if (!pl || typeof pl !== "object" || !out.people.includes(n)) { delete out.plans[n]; continue; } pl.block = Math.min(4, Math.max(1, +pl.block || 1)); if (!/^\d{4}-\d{2}-\d{2}$/.test(pl.blockStart || "")) pl.blockStart = todayKey(); }
+  for (const [n, pl] of Object.entries(out.plans)) { if (!pl || typeof pl !== "object" || !out.people.includes(n)) { delete out.plans[n]; continue; } pl.block = Math.min(4, Math.max(1, +pl.block || 1)); if (!/^\d{4}-\d{2}-\d{2}$/.test(pl.blockStart || "")) pl.blockStart = todayKey();
+    // rest days are per person too; a plan without its own inherits the shared setting it was created under
+    if (!Array.isArray(pl.restDays)) pl.restDays = out.restDays.slice(); pl.restDays = [...new Set(pl.restDays.map(Number).filter(d => d>=0 && d<=6))].sort(); if (pl.restDays.length === 7) pl.restDays = out.restDays.slice(); }
   return out;
 }
 // Music hand-off: a saved playlist link that opens in its app (Apple Music, Spotify, YouTube Music). The page itself can't stream.
@@ -1661,12 +1663,12 @@ async function syncNow(reason){
 /* ---- Plan for any day: past days show what was logged, today and future days show the projected session (A/B alternates per
    session done in the block; a rest day shows the session that would be next if you train anyway). ---- */
 function planFor(k, name){
-  const who = name || me(); const today = todayKey(); const rest = isRestKey(k); const s = sessions[sid(k, who)];
+  const who = name || me(); const today = todayKey(); const rest = isRestKey(k, who); const s = sessions[sid(k, who)];
   if (s) return { kind: "done", rest, block: s.block, day: s.day, rec: s };
   if (k < today) return { kind: "missed", rest };
   // count training days from today up to k that aren't logged yet; today's own session counts if it isn't done
   const pl = plan(who); let n = blockSessions(who), block = pl.block; let kk = today, idx = 0;
-  while (kk <= k) { if (!isRestKey(kk) || kk === k) { if (kk === k) { idx = n; break; } n++; } kk = addDays(kk, 1); }
+  while (kk <= k) { if (!isRestKey(kk, who) || kk === k) { if (kk === k) { idx = n; break; } n++; } kk = addDays(kk, 1); }
   while (idx >= SESSIONS_TO_ADVANCE && block < 4) { idx -= SESSIONS_TO_ADVANCE; block++; }
   return { kind: k === today ? "today" : "future", rest, block, day: idx % 2 === 0 ? "A" : "B", projected: block !== pl.block };
 }
@@ -1730,7 +1732,7 @@ let deviceMe = ""; try { deviceMe = localStorage.getItem("coreten.me") || ""; } 
 function me(){ return profile.people.includes(deviceMe) ? deviceMe : profile.people[0]; }
 function setMe(n){ deviceMe = n; try { localStorage.setItem("coreten.me", n); } catch(e){} viewAs = n; try { localStorage.setItem("coreten.viewAs", n); } catch(e){} joiners.clear(); saveJoiners(); renderAll(); }
 function ensureMe(){ if (!profile.people.includes(deviceMe)) { if (profile.people.length === 1 && profile.people[0] === "Me") openWhoSheet(true); else openWhoSheet(false); } }
-function plan(name){ const n = name || me(); if (!profile.plans[n]) { profile.plans[n] = { block: 1, blockStart: todayKey() }; } return profile.plans[n]; }
+function plan(name){ const n = name || me(); if (!profile.plans[n]) { profile.plans[n] = { block: 1, blockStart: todayKey(), restDays: profile.restDays.slice() }; } if (!Array.isArray(profile.plans[n].restDays)) profile.plans[n].restDays = profile.restDays.slice(); return profile.plans[n]; }
 function personSessions(name){ const n = name || me(); return Object.values(sessions).filter(s => s.name === n); }
 function blockSessions(name){ const n = name || me(); const pl = plan(n); return personSessions(n).filter(s => s.date >= pl.blockStart).length; }
 function didSession(k, name){ return !!sessions[sid(k, name || me())]; }
@@ -1750,9 +1752,9 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 function weekMonthLabel(wk){ const a = new Date(wk[0]+"T12:00:00"), b = new Date(wk[6]+"T12:00:00");
   return a.getMonth() === b.getMonth() ? `${MONTHS[a.getMonth()]} ${a.getFullYear()}` : `${MONTHS[a.getMonth()].slice(0,3)} – ${MONTHS[b.getMonth()].slice(0,3)} ${b.getFullYear()}`; }
-function isRestKey(k){ return profile.restDays.includes(new Date(k+"T12:00:00").getDay()); }
-function isRestToday(){ return isRestKey(todayKey()); }
-function weekTarget(){ return 7 - profile.restDays.length; }
+function isRestKey(k, name){ return plan(name).restDays.includes(new Date(k+"T12:00:00").getDay()); }
+function isRestToday(name){ return isRestKey(todayKey(), name); }
+function weekTarget(name){ return 7 - plan(name).restDays.length; }
 function nextTrainingLabel(){
   for (let i=1;i<=7;i++){ const k = addDays(todayKey(), i); if (!isRestKey(k)) return i===1 ? "Same time tomorrow." : `Next session ${new Date(k+"T12:00:00").toLocaleDateString(undefined,{weekday:"long"})}.`; }
   return "";
@@ -1761,7 +1763,7 @@ function streak(name){
   // Rest days are neutral: they neither break nor add to the streak. A missed training day ends it.
   const n0 = name || viewer(); let n = 0, k = todayKey(), guard = 0;
   if (!didSession(k, n0)) k = addDays(k,-1);
-  while (didSession(k, n0) || isRestKey(k)) { if (didSession(k, n0)) n++; k = addDays(k,-1); if (++guard>2000) break; }
+  while (didSession(k, n0) || isRestKey(k, n0)) { if (didSession(k, n0)) n++; k = addDays(k,-1); if (++guard>2000) break; }
   return n;
 }
 
@@ -1828,7 +1830,7 @@ function renderProgress(){
   $("p-total").textContent = list.length;
   $("p-streak").textContent = streak(v);
   const wk = weekKeys(); const wkDone = wk.filter(k=>didSession(k, v)).length;
-  $("p-week").textContent = `${wkDone}/${weekTarget()}`;
+  $("p-week").textContent = `${wkDone}/${weekTarget(v)}`;
   const last = list.slice(0,21).reverse();
   const bars = Array.from({length:21},(_,i)=>{ const s = last[i - (21-last.length)]; const b = s ? (s.back || "") : ""; return `<i class="${s?(b||"none"):"none"}" title="${s?s.date+" · "+(b||"no check-in"):""}"></i>`; });
   $("p-trend").innerHTML = bars.join("");
@@ -1840,7 +1842,7 @@ function renderProgress(){
   const wk7 = new Set(wk); const tally = {}; profile.people.forEach(p=>tally[p]={week:0,total:0,block:plan(p).block});
   all.forEach(s=>{ const p = s.name; if (!tally[p]) tally[p]={week:0,total:0,block:plan(p).block}; tally[p].total++; if (wk7.has(s.date)) tally[p].week++; });
   $("p-fam-card").hidden = profile.people.length < 2;
-  $("p-fam").innerHTML = `<span class="h">Name</span><span class="h">Block</span><span class="h">Week</span><span class="h">Total</span>` + Object.entries(tally).map(([p,t])=>`<span class="n">${esc(p)}</span><span class="num">${t.block}</span><span class="num">${t.week}/${weekTarget()}</span><span class="num">${t.total}</span>`).join("");
+  $("p-fam").innerHTML = `<span class="h">Name</span><span class="h">Block</span><span class="h">Week</span><span class="h">Total</span>` + Object.entries(tally).map(([p,t])=>`<span class="n">${esc(p)}</span><span class="num">${t.block}</span><span class="num">${t.week}/${weekTarget(p)}</span><span class="num">${t.total}</span>`).join("");
   $("p-log").innerHTML = list.length ? list.slice(0,30).map(s=>{ const others = Array.isArray(s.with) ? s.with : []; return `<div class="r"><span class="num">${s.date.slice(5).replace("-","/")}</span><span>B${s.block}·${s.day} <span class="muted small">${others.length?"with "+esc(others.join(", ")):""}${s.note?" · "+esc(s.note):""}</span></span><span class="b ${s.back||""}">${s.back||"–"}</span></div>`; }).join("") : `<p class="muted small">${esc(v)}'s first session will appear here.</p>`;
 }
 
@@ -1933,17 +1935,18 @@ async function addPerson(){
 const DAY_LABELS = [["M","Mon"],["T","Tue"],["W","Wed"],["T","Thu"],["F","Fri"],["S","Sat"],["S","Sun"]]; // Mon-first display
 function renderRestToggles(){
   const order = profile.weekStart === 0 ? [6,0,1,2,3,4,5] : [0,1,2,3,4,5,6]; // follow the week-start setting
-  $("o-rest").innerHTML = order.map(i=>{ const [l,full] = DAY_LABELS[i]; const dow = (i+1)%7; const on = profile.restDays.includes(dow);
+  const rd = plan(me()).restDays; $("o-rest-who").textContent = profile.people.length > 1 ? `${me()}'s` : "";
+  $("o-rest").innerHTML = order.map(i=>{ const [l,full] = DAY_LABELS[i]; const dow = (i+1)%7; const on = rd.includes(dow);
     return `<button type="button" data-dow="${dow}" aria-pressed="${on}" aria-label="${full}${on?" is a rest day":""}">${l}<small>${on?"rest":""}</small></button>`; }).join("");
   $("o-rest").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>toggleRest(+b.dataset.dow)));
   $("o-rest-count").textContent = `· ${weekTarget()} session${weekTarget()===1?"":"s"}/week`;
   $("o-weekstart").querySelectorAll("button").forEach(b=>{ b.setAttribute("aria-checked", String(+b.dataset.ws === (profile.weekStart||0))); if (!b._wired) { b._wired = true; b.addEventListener("click", async ()=>{ profile.weekStart = +b.dataset.ws; await saveProfile(); renderAll(); }); } });
 }
 async function toggleRest(dow){
-  const set = new Set(profile.restDays);
+  const pl = plan(me()); const set = new Set(pl.restDays);
   if (set.has(dow)) set.delete(dow); else set.add(dow);
   if (set.size === 7) { toast("Keep at least one training day."); return; }
-  profile.restDays = [...set].sort();
+  pl.restDays = [...set].sort();
   await saveProfile(); renderAll();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
