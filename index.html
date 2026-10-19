@@ -968,7 +968,11 @@ const MQ = (() => {
   const standRelaxed = { orient: "stand", y: 0.98, shL: { abd: 12 }, shR: { abd: 12 }, elL: 8, elR: 8 };
   const MOVES = {
     catcow:  [{ l: "Cat · tuck the tailbone, round up", p: { ...S.catcow, pelvis: -16, spine: -24, chest: 40, neck: 55, tilt: 3, shL: { flex: 110 }, shR: { flex: 110 } } }, { l: "Cow · tailbone up, belly sinks", p: { ...S.catcow, pelvis: 16, spine: 10, chest: -50, neck: -40, tilt: 6, shL: { flex: 110 }, shR: { flex: 110 } } }],
-    tilt:    [{ l: "Relaxed · small gap under the back", p: { ...onBack, pelvis: 8, spine: -12, contact: ["head","upperarm_l","upperarm_r","ball_l","ball_r"] } }, { l: "Tilt · tuck the tailbone, flatten the back", p: { ...onBack, pelvis: -14, contact: ["head","upperarm_l","upperarm_r","ball_l","ball_r"] } }],
+    // Pelvic tilt: only the pelvis rocks. The spine counter-rotates so head and shoulders stay on the floor; the thighs compensate
+    // inside hip() so the feet stay put. Relaxed = slight anterior tilt (gap under the low back), tilt = posterior (back flat).
+    // Values solved numerically: head, shoulders and feet stay on the floor in both frames; the low back lifts ~3 cm in "relaxed" and
+    // presses flat in "tilt" (spine curve + chest counter-curve), with the pelvis rocking rather than the whole body see-sawing.
+    tilt:    [{ l: "Relaxed · small gap under the back", p: { ...onBack, pelvis: 4, spine: -26, chest: 20, tilt: -1, contact: ["head","upperarm_l","upperarm_r","ball_l","ball_r"] } }, { l: "Tilt · tuck the tailbone, flatten the back", p: { ...onBack, pelvis: -8, spine: 24, chest: -16, tilt: 1, contact: ["head","upperarm_l","upperarm_r","ball_l","ball_r"] } }],
     curlup:  [{ l: "Set up · hands under the low back", p: { ...S.curlup, neck: 0, spine: 0, shL: { abd: -40, flex: -40 }, shR: { abd: -40, flex: -40 }, elL: 60, elR: 60 } }, { l: "Lift head and shoulders an inch", p: { ...S.curlup, neck: 32, spine: 9, shL: { abd: -40, flex: -40 }, shR: { abd: -40, flex: -40 }, elL: 60, elR: 60 } }],
     curlup2: [{ l: "Set up · hands under the low back", p: { ...S.curlup2, neck: 0, spine: 0, shL: { abd: -40, flex: -40 }, shR: { abd: -40, flex: -40 }, elL: 60, elR: 60 } }, { l: "Lift · elbows off the floor", p: { ...S.curlup2, neck: 32, spine: 9, shL: { abd: -28, flex: -12 }, shR: { abd: -28, flex: -12 }, elL: 95, elR: 95 } }],
     splank_k:[{ l: "Hips on the floor", p: { ...sideDownK } }, { l: "Hips up · one straight line", p: { ...sideUpK } }],
@@ -1242,9 +1246,12 @@ const H3 = (() => {
     nodes.forEach((_, i) => getW(i));
     if (anchor !== null) { // ground the figure on its contact joints (or, with no anchor, on whatever is lowest)
       const A = anchor || { joints: null, cx: null, cz: null, margin: MARGIN[g("orient", "stand")] || 0.03 };
-      const js = A.joints || bodyJoints(model); let minY = 1e9, cx = 0, cz = 0; js.forEach(ni => { minY = Math.min(minY, world[ni][13]); cx += world[ni][12]; cz += world[ni][14]; }); cx /= js.length; cz /= js.length;
-      const margin = (P.contact && P.contact.length) ? Math.min(...P.contact.map(n => REST_H[n] !== undefined ? REST_H[n] : 0.08)) : A.margin;
-      const dy = margin - minY, dx = A.cx === null ? 0 : A.cx - cx, dz = A.cz === null ? 0 : A.cz - cz;
+      const js = A.joints || bodyJoints(model); let cx = 0, cz = 0; js.forEach(ni => { cx += world[ni][12]; cz += world[ni][14]; }); cx /= js.length; cz /= js.length;
+      // Each contact joint rests at its own height above the floor (a head centre sits higher than the ball of a foot), so lift the
+      // figure until the contact that would sink deepest is exactly on the floor. Unnamed contacts use the orientation's margin.
+      const named = (P.contact || []).map(n => model.byName[n]).filter(i => i !== undefined); const restOf = ni => { const h = REST_H[nodes[ni].name]; return h !== undefined ? h : A.margin; };
+      let dy = -1e9; (named.length ? named : js).forEach(ni => { const need = (named.length ? restOf(ni) : A.margin) - world[ni][13]; if (need > dy) dy = need; });
+      const dx = A.cx === null ? 0 : A.cx - cx, dz = A.cz === null ? 0 : A.cz - cz;
       world.forEach(m => { if (m) { m[12] += dx; m[13] += dy; m[14] += dz; } });
     }
     if (yaw) { const Ry = RY(yaw); for (let i = 0; i < world.length; i++) if (world[i]) world[i] = mul(Ry, world[i]); }
@@ -1307,8 +1314,8 @@ const H3 = (() => {
   const lookAt = (eye, at) => { const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]], dot = (a, b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2], cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]], norm = a => { const l = Math.hypot(...a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
     const f = norm(sub(at, eye)), r = norm(cross(f, [0,1,0])), u = cross(r, f); return [r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u[2],-f[2],0, -dot(r,eye),-dot(u,eye),dot(f,eye),1]; };
   const persp = (fov, asp, n, f) => { const t = 1 / Math.tan(fov / 2); return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; };
-  const CAM = { stand: [[2.4, 1.4, 3.4], [0, 0.82, 0]], back: [[0.95, 1.7, 2.6], [0, 0.3, 0]], prone: [[0.75, 1.6, 2.7], [0, 0.35, 0]], side: [[-1.7, 0.8, 2.4], [0.05, 0.25, 0]], profile: [[3.0, 1.3, 0.9], [0, 0.4, 0]], front: [[0, 0.9, 4.2], [0, 0.84, 0]], rear: [[0, 0.9, -4.2], [0, 0.84, 0]], roll: [[-0.5, 1.0, 3.3], [0, 0.28, 0]] };
-  const CAM_OVERRIDE = { child: "profile", hipflex: "profile", rlunge: "profile", splank_r: "roll", map_front: "front", map_back: "rear" };
+  const CAM = { stand: [[2.4, 1.4, 3.4], [0, 0.82, 0]], back: [[0.95, 1.7, 2.6], [0, 0.3, 0]], prone: [[0.75, 1.6, 2.7], [0, 0.35, 0]], side: [[-1.7, 0.8, 2.4], [0.05, 0.25, 0]], profile: [[3.0, 1.3, 0.9], [0, 0.4, 0]], front: [[0, 0.9, 4.2], [0, 0.84, 0]], rear: [[0, 0.9, -4.2], [0, 0.84, 0]], roll: [[-0.5, 1.0, 3.3], [0, 0.28, 0]], low: [[-0.2, 0.55, 3.1], [0, 0.22, 0]] };
+  const CAM_OVERRIDE = { tilt: "low", child: "profile", hipflex: "profile", rlunge: "profile", splank_r: "roll", map_front: "front", map_back: "rear" };
   const COL = { light: { fill: [0.74, 0.86, 0.9], rim: [0.42, 0.58, 0.68], alpha: 0.17, rimK: 1.0, m1: [0.05, 0.62, 0.48], m1g: [0.35, 1.0, 0.82], m2: [0.2, 0.45, 0.8], m2g: [0.5, 0.75, 1.0], floor: "rgba(28,36,48,0.10)", label: "#0f6b5c" },
                 dark:  { fill: [0.55, 0.78, 0.86], rim: [0.78, 0.9, 0.95], alpha: 0.14, rimK: 0.9, m1: [0.24, 0.9, 0.75], m1g: [0.5, 1.0, 0.9], m2: [0.42, 0.68, 1.0], m2g: [0.6, 0.8, 1.0], floor: "rgba(0,0,0,0.28)", label: "#4cc3a6" } };
 
