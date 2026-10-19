@@ -160,10 +160,11 @@ details .small{margin-top:8px}
 a{color:var(--accent)}
 
 /* --- TV mode: landscape, mirrored to a big screen. Type scales with the screen, timer dominates. --- */
-body.tv .app{max-width:none}
-body.tv .top{display:none}
-body.tv main{padding:10px 0 12px}
-body.tv .rail{display:none}
+/* Full-screen takeover only while a session is running; the home/progress/blocks/guide views keep their header and bottom bar. */
+body.tv.in-session .app{max-width:none}
+body.tv.in-session .top{display:none}
+body.tv.in-session main{padding:10px 0 12px}
+body.tv.in-session .rail{display:none}
 body.tv .session{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);grid-template-rows:auto auto minmax(0,1fr) auto;gap:10px 28px;height:calc(100vh - 22px);min-height:0}
 body.tv .session>.row:first-child,body.tv .session>.bar,body.tv .ctl,body.tv #s-start{grid-column:1/-1}
 body.tv #s-next{display:none}
@@ -221,7 +222,7 @@ body.tv .session .eyebrow{font-size:clamp(13px,2.2vmin,20px)}
 .top .gear{position:absolute;right:0;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink-2);display:grid;place-items:center;cursor:pointer}
 .top .gear:hover{color:var(--accent)}
 .top .sub{padding-right:48px}
-body.tv .top .gear{display:none}
+body.tv.in-session .top .gear{display:none}
 .sheet .in{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:14px max(16px,env(safe-area-inset-left,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
 .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto}
 .sheet .close{position:sticky;top:0;align-self:flex-end}
@@ -1811,6 +1812,7 @@ function quitSession(){ clearInterval(tick); try { wake?.release(); } catch(e){}
 function showView(v){
   ["home","session","checkin","progress","blocks","guide"].forEach(x=>$("v-"+x).hidden = x!==v);
   $("rail").hidden = (v==="session" || v==="checkin");
+  document.body.classList.toggle("in-session", v==="session");
   $("rail").querySelectorAll("button").forEach(b=>b.setAttribute("aria-current", b.dataset.view===v ? "page" : "false"));
   window.scrollTo({top:0});
 }
