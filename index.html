@@ -574,7 +574,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.20-0442";
+const APP_VERSION = "2026.10.20-0542";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1667,6 +1667,7 @@ async function gh(path, opts = {}){
   if (r.status === 401) throw new Error("GitHub rejected the token. Make a new fine-grained token with Gists: read & write.");
   if (r.status === 403 || r.status === 404) throw new Error("The token can't use Gists (" + r.status + "). It needs the Gists: read & write permission.");
   if (!r.ok) throw new Error("GitHub error " + r.status);
+  if (sync.gist && path === "/gists/" + sync.gist) { const et = r.headers.get("etag"); if (et) gistEtag = et; }
   return r.status === 204 ? null : r.json();
 }
 async function findOrCreateGist(){
@@ -1683,9 +1684,25 @@ async function pullGist(){
   try { return JSON.parse(txt); } catch(e){ return null; }
 }
 async function pushGist(d){ await gh("/gists/" + sync.gist, { method: "PATCH", body: JSON.stringify({ files: { [SYNC_FILE]: { content: JSON.stringify(d) } } }) }); }
-let syncing = false, syncT = null, syncAgain = false;
+let syncing = false, syncT = null, syncAgain = false, syncDirty = false, gistEtag = "";
+/* ---- Keeping phones current. A change on this phone pushes 1.5s after it's saved. To notice the other phones' changes without
+   a full pull every time, peekGist() asks GitHub whether the Gist changed since we last saw it (If-None-Match): a 304 costs
+   nothing against the rate limit, a 200 means someone else pushed, so we sync. Runs every 30s while the app is visible and
+   idle, on every return to the foreground, before a session starts and when Progress opens. ---- */
+async function peekGist(){
+  if (!sync.token || !sync.gist || syncing) return false;
+  try {
+    const r = await fetch("https://api.github.com/gists/" + sync.gist, { headers: { "Accept": "application/vnd.github+json", "Authorization": "Bearer " + sync.token, "X-GitHub-Api-Version": "2022-11-28", ...(gistEtag ? { "If-None-Match": gistEtag } : {}) }, cache: "no-store" });
+    if (r.status === 304) return false;
+    if (!r.ok) return false;
+    await syncNow("auto"); return true;
+  } catch(e){ return false; }
+}
+// Foreground / periodic: push anything unsent, otherwise just look for other phones' changes.
+function syncIfNeeded(){ if (!sync.token) return; if (syncDirty) syncNow("auto"); else peekGist(); }
+setInterval(() => { if (document.visibilityState === "visible" && !ses) syncIfNeeded(); }, 30000);
 function setSyncStatus(msg, bad){ const el = $("o-sync-status"); if (el) { el.textContent = msg; el.className = "small" + (bad ? " danger" : " muted"); } $("o-sync-row").hidden = !sync.token; $("o-sync-share").hidden = !sync.token; if (sync.token && $("o-sync-url")) $("o-sync-url").value = setupLink(); }
-function scheduleSync(){ if (!sync.token) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow("auto"), 1500); }
+function scheduleSync(){ if (!sync.token) return; syncDirty = true; clearTimeout(syncT); syncT = setTimeout(() => syncNow("auto"), 1500); }
 async function syncNow(reason){
   if (!sync.token) return; if (syncing) { syncAgain = true; return; }
   syncing = true; setSyncStatus("Syncing…");
@@ -1694,9 +1711,12 @@ async function syncNow(reason){
     let remote = null;
     try { remote = await pullGist(); } catch(e){ if (/404|can't use/.test(e.message)) { sync.gist = ""; await findOrCreateGist(); remote = await pullGist(); } else throw e; }
     const local = snapshotData(); const merged = mergeData(local, remote);
-    const n = (canon(merged) !== canon(local)) ? await applyMerged(merged) : 0;
-    if (!remote || canon(merged) !== canon(remote)) await pushGist(merged);
-    sync.last = new Date().toISOString(); saveSyncCfg();
+    // Decide what to push before applying: rendering the merge can lazily fill in defaults (a new person's plan), and
+    // pushing those would change the Gist for nothing, making every other phone pull again.
+    const cm = canon(merged), changedLocal = cm !== canon(local), changedRemote = !remote || cm !== canon(remote);
+    const n = changedLocal ? await applyMerged(merged) : 0;
+    if (changedRemote) await pushGist(merged);
+    sync.last = new Date().toISOString(); saveSyncCfg(); syncDirty = false;
     setSyncStatus("Synced " + new Date(sync.last).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + (n ? " · " + n + " update" + (n > 1 ? "s" : "") + " pulled" : ""));
     if (reason === "manual") toast(n ? "Synced · " + n + " update" + (n > 1 ? "s" : "") + " pulled" : "Synced · everything already matched");
   } catch(e){
@@ -1741,7 +1761,7 @@ function closePlan(){ $("plan").hidden = true; document.body.style.overflow = ""
 let lastUpdateCheck = 0;
 async function checkForUpdate(manual){
   if (window.claude || !/^https?:$/.test(location.protocol)) { if (manual) toast("This copy always runs the latest version"); return; }
-  if (!manual && Date.now() - lastUpdateCheck < 5 * 60000) return; lastUpdateCheck = Date.now();
+  if (!manual && Date.now() - lastUpdateCheck < 60000) return; lastUpdateCheck = Date.now();
   try {
     const r = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }); if (!r.ok) throw new Error(r.status);
     const v = (await r.json()).version;
@@ -2129,6 +2149,7 @@ function halfCue(k){ const d = EX[k].dose; let m = d.match(/Switch ([^.]*?) half
 
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
 async function startSession(){
+  peekGist();
   const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who);
   ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: pl.block, who: [who, ...profile.people.filter(n=>n!==who && joiners.has(n))] };
   showView("session");
@@ -2225,7 +2246,7 @@ function showView(v){
 let toastT; function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2600); }
 
 function bindUI(){
-  $("rail").querySelectorAll("button[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
+  $("rail").querySelectorAll("button[data-view]").forEach(b=>b.addEventListener("click",()=>{ showView(b.dataset.view); if (b.dataset.view === "progress") peekGist(); }));
   $("h-start").addEventListener("click", startSession);
   $("h-tv").addEventListener("click", ()=>{ setTV(true); startSession(); });
   $("o-music-save").addEventListener("click", saveMusic);
@@ -2295,7 +2316,8 @@ function bindUI(){
   setTimeout(()=>checkForUpdate(false), 1500);
   $("o-reset-block").addEventListener("click", async ()=>{ plan(me()).blockStart = todayKey(); stampPlan(me()); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
   window.addEventListener("resize", ()=>{ if (sfig && sfig.render) sfig.render(); });
-  document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && sync.token && (!sync.last || Date.now() - new Date(sync.last) > 60000)) syncNow("auto"); });
+  document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") syncIfNeeded(); });
+  window.addEventListener("online", ()=>{ if (syncDirty) syncNow("auto"); });
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible" && ses && wake===null) navigator.wakeLock?.request("screen").then(w=>wake=w).catch(()=>{}); });
 }
 
