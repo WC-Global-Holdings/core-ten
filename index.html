@@ -503,6 +503,11 @@ body.tv.in-session .top .gear{display:none}
           </details>
         </div>
         <label class="chk"><input type="checkbox" id="o-sound" checked> Beep at step changes</label>
+        <div class="stack" id="o-voice-wrap" style="gap:6px">
+          <label class="chk"><input type="checkbox" id="o-voice"> Voice walkthrough</label>
+          <p class="small muted" style="margin:-2px 0 0 30px">Reads each exercise aloud while the timer runs: the setup, what to do, when to switch sides.</p>
+          <div class="row" id="o-voice-row" hidden style="margin-left:30px"><button class="btn ghost sm" id="o-voice-test">Test the voice</button><span class="small muted" id="o-voice-note">Uses your phone's built-in speech. If you can't hear it, check the ring/silent switch.</span></div>
+        </div>
         <div class="row" style="justify-content:space-between"><span class="small muted">Version <span id="o-version" class="num"></span></span><button class="btn ghost sm" id="o-update">Check for updates</button></div>
         <button class="btn ghost" id="o-reset-block">Restart current block from week 1</button>
     </div>
@@ -569,7 +574,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.19-2308";
+const APP_VERSION = "2026.10.20-0225";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1925,6 +1930,8 @@ function renderBlocks(){
   renderRestToggles();
   renderPeople();
   $("o-sound").checked = profile.sound!==false;
+  $("o-voice").checked = voiceOK && profile.voice === true; $("o-voice").disabled = !voiceOK; $("o-voice-row").hidden = !(voiceOK && profile.voice === true);
+  if (!voiceOK) $("o-voice-note").textContent = "This browser has no speech engine.";
 }
 function renderPeople(){
   const who = me();
@@ -2096,6 +2103,28 @@ function beep(kind){
     o.start(); o.stop(audio.currentTime+(kind==="end"?.5:.15));
   } catch(e){}
 }
+/* ---- Voice walkthrough: the device's own speech engine reads each step (name, start position, how-to), then the dose when the
+   clock starts, a halfway "switch sides" where the step calls for it, and the back-safety watch-out on longer steps. No files, no network. ---- */
+const voiceOK = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+let voicePick = null;
+function pickVoice(){
+  if (voicePick) return voicePick; let vs = []; try { vs = speechSynthesis.getVoices(); } catch(e){} if (!vs.length) return null;
+  const en = vs.filter(v => /^en[-_]/i.test(v.lang)); const pref = ["Samantha", "Google US English", "Microsoft Aria", "Microsoft Jenny", "Microsoft Zira", "Karen", "Daniel", "Moira", "Tessa"];
+  voicePick = en.find(v => pref.some(p => v.name.startsWith(p))) || en.find(v => v.localService) || en[0] || vs[0]; return voicePick;
+}
+if (voiceOK) try { speechSynthesis.addEventListener("voiceschanged", () => { voicePick = null; }); } catch(e){}
+function sayText(s){ return String(s).replace(/<[^>]+>/g, "").replace(/\s*·\s*/g, ", ").replace(/–/g, " ").replace(/\b(\d+)s\b/g, (m, n) => n + (n === "1" ? " second" : " seconds")).replace(/\s+/g, " ").trim(); }
+function say(text, o){
+  o = o || {}; if (!voiceOK || (!o.force && profile.voice !== true)) return;
+  try {
+    if (o.now) speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(sayText(text)); const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-US";
+    u.rate = 1; u.pitch = 1; u.volume = 1; speechSynthesis.speak(u);
+  } catch(e){}
+}
+function hush(){ if (voiceOK) try { speechSynthesis.cancel(); } catch(e){} }
+function stepIntro(){ const [k] = ses.steps[ses.i]; const e = EX[k]; return `Step ${ses.i + 1} of ${ses.steps.length}. ${e.name}. ${START_POS[k] ? START_POS[k] + ". " : ""}${e.cue}`; }
+function halfCue(k){ const d = EX[k].dose; let m = d.match(/Switch ([^.]*?) halfway/i); if (m) return `Halfway. Switch ${m[1]}.`; if (/each side/i.test(d)) return "Halfway. Switch sides."; return ""; }
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
 async function startSession(){
   const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who);
@@ -2105,18 +2134,26 @@ async function startSession(){
   clearInterval(tick); tick = setInterval(tickFn, 1000);
   try { wake = await navigator.wakeLock?.request("screen"); } catch(e){ wake = null; }
   if (!tv) beep("go");
+  say(stepIntro(), { now: true });
 }
 function beginStep(){ // leave the preview: short lead-in, then the work timer
   if (!ses || ses.phase !== "preview") return;
   ses.phase = "ready"; ses.remaining = ses.i === 0 ? 8 : 5; ses.running = true; beep("go"); renderStep();
+  say("Get into position.", { now: true });
 }
 function tickFn(){
   if (!ses || !ses.running) return;
   ses.remaining--; ses.elapsed++;
   if (ses.remaining <= 0) {
-    if (ses.phase === "ready") { ses.phase = "work"; ses.remaining = ses.steps[ses.i][1]; beep("go"); }
+    if (ses.phase === "ready") { ses.phase = "work"; ses.remaining = ses.steps[ses.i][1]; beep("go"); say(EX[ses.steps[ses.i][0]].dose); }
     else { nextStep(); return; }
   } else if (ses.remaining <= 3 && ses.phase==="work") beep("tick");
+  else if (ses.phase === "work") {
+    const [k, sec] = ses.steps[ses.i]; const e = EX[k];
+    if (ses.remaining === Math.ceil(sec / 2) && halfCue(k)) say(halfCue(k), { now: true });
+    else if (sec >= 60 && ses.remaining === sec - 15 && e.watch) say("Watch out. " + e.watch);
+    else if (ses.remaining === 10 && !speechSynthesis.speaking) say("Ten seconds.");
+  }
   renderClock();
 }
 function nextStep(){
@@ -2124,8 +2161,9 @@ function nextStep(){
   ses.i++; beep("end");
   if (tv) { ses.phase = "preview"; ses.running = false; } else { ses.phase = "ready"; ses.remaining = 5; }
   renderStep();
+  hush(); say("Rest."); say(stepIntro());
 }
-function prevStep(){ if (ses.i>0) ses.i--; if (tv) { ses.phase="preview"; ses.running=false; } else { ses.phase="ready"; ses.remaining=5; } renderStep(); }
+function prevStep(){ if (ses.i>0) ses.i--; if (tv) { ses.phase="preview"; ses.running=false; } else { ses.phase="ready"; ses.remaining=5; } renderStep(); say(stepIntro(), { now: true }); }
 function renderStep(){
   const [k,sec] = ses.steps[ses.i]; const e = EX[k];
   $("s-count").textContent = `Step ${ses.i+1} of ${ses.steps.length}`;
@@ -2160,7 +2198,7 @@ function renderClock(){
 }
 function finishSession(){
   clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview");
-  beep("end");
+  beep("end"); hush(); say("Done. Nice work. Log how your back felt.");
   $("c-min").textContent = Math.max(1, Math.round(ses.elapsed/60));
   $("c-choice").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"));
   $("c-note").value = "";
@@ -2172,7 +2210,7 @@ function finishSession(){
   renderCheckinBacks();
   showView("checkin");
 }
-function quitSession(){ clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview"); ses = null; showView("home"); }
+function quitSession(){ hush(); clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview"); ses = null; showView("home"); }
 
 /* ============================ UI ============================ */
 function showView(v){
@@ -2228,7 +2266,7 @@ function bindUI(){
   $("who-add").addEventListener("click", whoAddNew);
   $("who-name").addEventListener("keydown", e=>{ if (e.key==="Enter") { e.preventDefault(); whoAddNew(); } });
   document.body.classList.toggle("tv", tv); $("s-tv").setAttribute("aria-pressed", String(tv));
-  $("s-pause").addEventListener("click", ()=>{ if (ses.phase==="preview") return; ses.running=!ses.running; renderClock(); });
+  $("s-pause").addEventListener("click", ()=>{ if (ses.phase==="preview") return; ses.running=!ses.running; renderClock(); if (!ses.running) hush(); });
   $("s-skip").addEventListener("click", ()=>{ if (ses.phase==="preview") { beginStep(); return; } if (ses.phase==="ready") { ses.phase="work"; ses.remaining=ses.steps[ses.i][1]; renderClock(); } else nextStep(); });
   $("s-start").addEventListener("click", beginStep);
   $("s-prev").addEventListener("click", prevStep);
@@ -2247,6 +2285,8 @@ function bindUI(){
     ses = null; renderAll(); showView("home"); toast(`Saved. ${nextTrainingLabel()}`);
   });
   $("o-sound").addEventListener("change", async e=>{ profile.sound = e.target.checked; await saveProfile(); });
+  $("o-voice").addEventListener("change", async e=>{ profile.voice = e.target.checked; $("o-voice-row").hidden = !profile.voice; if (profile.voice) say("Voice walkthrough is on. I'll read each exercise as the timer runs.", { force: true, now: true }); else hush(); await saveProfile(); });
+  $("o-voice-test").addEventListener("click", ()=> say("Step 1 of 8. Cat Cow. All fours. " + EX.catcow.cue, { force: true, now: true }));
   $("o-version").textContent = APP_VERSION;
   $("o-update").addEventListener("click", ()=>checkForUpdate(true));
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") checkForUpdate(false); });
