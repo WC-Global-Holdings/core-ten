@@ -514,7 +514,7 @@ body.tv.in-session .top .gear{display:none}
             <div class="stack voices" id="o-voices" style="gap:6px"></div>
             <button class="btn ghost sm" id="o-voices-more" hidden>Show all voices</button>
             <div class="row" style="justify-content:space-between"><span class="small">Speed</span><input type="range" id="o-voice-rate" min="80" max="120" step="5" value="100" style="flex:1;margin-left:12px"><span class="small num muted" id="o-voice-rate-l" style="width:36px;text-align:right">1.0×</span></div>
-            <p class="small muted" style="margin:0">For a much better voice on iPhone: Settings → Accessibility → Spoken Content → Voices → English → download one marked <b>Premium</b> (Ava, Zoe or Evan), then come back and pick it here.</p>
+            <p class="small muted" style="margin:0" id="o-voice-help">iPhone doesn't let web apps use its downloaded Premium voices — only these built-in ones. The recorded coach, when it's been made, is the good-sounding option.</p>
           </div>
         </div>
         <div class="row" style="justify-content:space-between"><span class="small muted">Version <span id="o-version" class="num"></span></span><button class="btn ghost sm" id="o-update">Check for updates</button></div>
@@ -583,7 +583,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.20-0617";
+const APP_VERSION = "2026.10.20-0636";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1782,7 +1782,7 @@ async function checkForUpdate(manual){
   } catch(e){ if (manual) toast("Couldn't check for updates (offline?)"); }
 }
 function closeSettings(){ $("settings").hidden = true; document.body.style.overflow = ""; }
-function renderSettings(){ setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token; if (sync.token) $("o-sync-url").value = setupLink(); }
+function renderSettings(){ if (voiceOK && profile.voice === true) renderVoices(); setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token; if (sync.token) $("o-sync-url").value = setupLink(); }
 // Setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
 // Inside claude.ai the page has no shareable address, so the link points at the self-hosted copy of the app.
 const HOSTED_APP = "https://wc-global-holdings.github.io/core-ten/";
@@ -1964,21 +1964,24 @@ function renderBlocks(){
   if (!voiceOK) $("o-voice-note").textContent = "This browser has no speech engine.";
   if (voiceOK && profile.voice === true) renderVoices();
 }
-const PREVIEW = "Step 2 of 7. McGill Curl-Up. On back. One knee bent, one leg straight. Hands under the small of your back. Lift only your head and shoulders an inch.";
+const PREVIEW = "McGill Curl-Up. On back. One knee bent, one leg straight. Hands under the small of your back to keep its natural curve. Lift only your head and shoulders an inch, as if your head is on a scale and you want it to read zero.";
 let voicesExpanded = false, voicePlaying = "";
 function renderVoices(){
   const box = $("o-voices"); const all = listVoices(); const cur = pickVoice();
-  if (!all.length) { box.innerHTML = `<p class="small muted" style="margin:0">No English voices reported yet. If this list stays empty, this browser doesn't expose its voices to web pages.</p>`; $("o-voices-more").hidden = true; return; }
-  const curKey = cur ? cur.name + "|" + cur.lang : ""; const curIdx = all.findIndex(v => v.name + "|" + v.lang === curKey);
+  const rec = clipsMan ? `<button type="button" class="voice" data-voice="__clips__" aria-pressed="${clipsOn()}"><span><b>${esc(String(clipsMan.voice || "Recorded coach").replace(/\s*\(.*\)\s*/, ""))}</b> <span class="pill">Recorded</span><span class="small muted">Same voice on every phone · the recommended one</span></span><span class="play">${voicePlaying === "__clips__" ? "▶ Playing" : clipsOn() ? "✓ Selected" : "▶"}</span></button>` : "";
+  if (!all.length && !rec) { box.innerHTML = `<p class="small muted" style="margin:0">No English voices reported yet. If this list stays empty, this browser doesn't expose its voices to web pages.</p>`; $("o-voices-more").hidden = true; return; }
+  const curKey = !clipsOn() && cur ? cur.name + "|" + cur.lang : ""; const curIdx = all.findIndex(v => v.name + "|" + v.lang === curKey);
   const show = voicesExpanded || all.length <= 6 ? all : all.slice(0, Math.max(6, curIdx + 1));
-  box.innerHTML = show.map(v => { const l = voiceLabel(v); const key = v.name + "|" + v.lang; const on = key === curKey;
+  box.innerHTML = rec + show.map(v => { const l = voiceLabel(v); const key = v.name + "|" + v.lang; const on = key === curKey;
     return `<button type="button" class="voice" data-voice="${esc(key)}" aria-pressed="${on}"><span><b>${esc(l.base)}</b>${l.tier ? ` <span class="pill">${l.tier}</span>` : ""}<span class="small muted">${esc(l.lang)}${v.localService ? "" : " · needs internet"}</span></span><span class="play">${voicePlaying === key ? "▶ Playing" : on ? "✓ Selected" : "▶"}</span></button>`; }).join("");
   $("o-voices-more").hidden = voicesExpanded || show.length >= all.length; $("o-voices-more").textContent = `Show all ${all.length} voices`;
   box.querySelectorAll("[data-voice]").forEach(b => b.addEventListener("click", () => {
-    const [name, lang] = b.dataset.voice.split("|"); voiceCfg.name = name; voiceCfg.lang = lang; saveVoiceCfg(); voicePick = null; voicePlaying = b.dataset.voice; renderVoices();
-    say(PREVIEW, { force: true, now: true, onend: () => { if (voicePlaying === b.dataset.voice) { voicePlaying = ""; if (!$("settings").hidden) renderVoices(); } } });
+    const key = b.dataset.voice; const done = () => { if (voicePlaying === key) { voicePlaying = ""; if (!$("settings").hidden) renderVoices(); } };
+    if (key === "__clips__") { voiceCfg.name = "__clips__"; voiceCfg.lang = ""; saveVoiceCfg(); voicePlaying = key; renderVoices(); hush(); cue("step2", "Step 2 of 7.", { force: true }); cue("intro_curlup", PREVIEW, { force: true, onend: done }); return; }
+    const [name, lang] = key.split("|"); voiceCfg.name = name; voiceCfg.lang = lang; saveVoiceCfg(); voicePick = null; voicePlaying = key; renderVoices();
+    say(PREVIEW, { force: true, now: true, onend: done });
   }));
-  $("o-voice-rate").value = Math.round((voiceCfg.rate || 1) * 100); $("o-voice-rate-l").textContent = (voiceCfg.rate || 1).toFixed(2).replace(/0$/, "") + "×";
+  $("o-voice-rate").closest(".row").hidden = clipsOn(); $("o-voice-rate").value = Math.round((voiceCfg.rate || 1) * 100); $("o-voice-rate-l").textContent = (voiceCfg.rate || 1).toFixed(2).replace(/0$/, "") + "×";
 }
 function renderPeople(){
   const who = me();
@@ -2170,21 +2173,59 @@ function listVoices(){
 let voicePick = null;
 function pickVoice(){
   if (voicePick) return voicePick; const vs = listVoices(); if (!vs.length) return null;
-  voicePick = (voiceCfg.name && vs.find(v => v.name === voiceCfg.name && (!voiceCfg.lang || v.lang === voiceCfg.lang))) || vs.find(v => v.name === voiceCfg.name) || vs[0]; return voicePick;
+  const want = /^__/.test(voiceCfg.name) ? "" : voiceCfg.name;
+  voicePick = (want && vs.find(v => v.name === want && (!voiceCfg.lang || v.lang === voiceCfg.lang))) || (want && vs.find(v => v.name === want)) || vs[0]; return voicePick;
 }
 if (voiceOK) try { speechSynthesis.addEventListener("voiceschanged", () => { voicePick = null; if (typeof renderVoices === "function" && !$("settings").hidden) renderVoices(); }); } catch(e){}
 function voiceLabel(v){ const base = v.name.replace(/\s*\((Premium|Enhanced|Compact)\)\s*/i, ""); const tier = /premium/i.test(v.name) ? "Premium" : /enhanced/i.test(v.name) ? "Enhanced" : ""; return { base, tier, lang: LANGS[v.lang.replace("_", "-")] || v.lang }; }
 function sayText(s){ return String(s).replace(/<[^>]+>/g, "").replace(/\s*·\s*/g, ", ").replace(/–/g, " ").replace(/\b(\d+)s\b/g, (m, n) => n + (n === "1" ? " second" : " seconds")).replace(/\s+/g, " ").trim(); }
-function say(text, o){
-  o = o || {}; if (!voiceOK || (!o.force && profile.voice !== true)) return;
+function say(text, o){ o = o || {}; if (!o.force && profile.voice !== true) return; if (o.now) hush(); speakText(text, o); }
+function speakText(text, o){
+  o = o || {}; if (!voiceOK) return;
   try {
-    if (o.now) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(sayText(text)); const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-US";
     u.rate = voiceCfg.rate || 1; u.pitch = 1; u.volume = 1; if (o.onstart) u.onstart = o.onstart; if (o.onend) { u.onend = o.onend; u.onerror = o.onend; } speechSynthesis.speak(u);
   } catch(e){}
 }
-function hush(){ if (voiceOK) try { speechSynthesis.cancel(); } catch(e){} }
-function stepIntro(){ const [k] = ses.steps[ses.i]; const e = EX[k]; return `Step ${ses.i + 1} of ${ses.steps.length}. ${e.name}. ${START_POS[k] ? START_POS[k] + ". " : ""}${e.cue}`; }
+/* Recorded coach: clips under voice/ (made on a Mac with tools/record_voice.py), listed in voice/manifest.json. When present
+   and chosen, cues play from them through WebAudio (already unlocked by the beeps); anything missing falls back to speech. */
+let clipsMan = null, clipBuf = new Map(), clipQ = [], clipSrc = null, clipBusy = false;
+function clipsOn(){ return !!(clipsMan && voiceCfg.name !== "__speech__" && (voiceCfg.name === "__clips__" || !voiceCfg.name)); }
+async function loadClipsManifest(){
+  try { const r = await fetch("voice/manifest.json", { cache: "no-store" }); if (!r.ok) return; const m = await r.json(); if (m && Array.isArray(m.ids) && m.ids.length) { clipsMan = m; clipsMan.set = new Set(m.ids);
+      // first time the recordings show up on this phone: make them the default, whatever phone voice was picked before
+      try { if (localStorage.getItem("coreten.voice.clips") !== "1") { localStorage.setItem("coreten.voice.clips", "1"); voiceCfg.name = "__clips__"; voiceCfg.lang = ""; saveVoiceCfg(); } } catch(e){} } } catch(e){}
+}
+function clipCtx(){ try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); if (audio.state === "suspended") audio.resume(); return audio; } catch(e){ return null; } }
+async function clipBuffer(id){
+  if (clipBuf.has(id)) return clipBuf.get(id);
+  const p = (async () => { const ctx = clipCtx(); if (!ctx) throw new Error("no audio"); const r = await fetch(`voice/${id}.${clipsMan.ext || "m4a"}`); if (!r.ok) throw new Error(r.status); return ctx.decodeAudioData(await r.arrayBuffer()); })();
+  clipBuf.set(id, p); p.catch(() => clipBuf.delete(id)); return p;
+}
+function prefetchClips(ids){ if (!clipsOn()) return; for (const id of ids) if (clipsMan.set.has(id)) clipBuffer(id).catch(() => {}); }
+function stopClips(){ clipQ = []; if (clipSrc) { try { clipSrc.onended = null; clipSrc.stop(); } catch(e){} clipSrc = null; } clipBusy = false; }
+async function drainClips(){
+  if (clipBusy) return; clipBusy = true;
+  while (clipQ.length) {
+    const { id, text, onstart, onend } = clipQ.shift();
+    try {
+      const buf = await clipBuffer(id); const ctx = clipCtx(); if (!ctx) throw new Error("no audio");
+      await new Promise(res => { const s = ctx.createBufferSource(); s.buffer = buf; const g = ctx.createGain(); g.gain.value = 1; s.connect(g); g.connect(ctx.destination); clipSrc = s; s.onended = () => { if (clipSrc === s) clipSrc = null; res(); }; if (onstart) onstart(); s.start(); });
+      if (onend) onend();
+    } catch(e){ speakText(text, { onstart, onend }); } // clip missing or undecodable: the phone's voice reads it instead
+  }
+  clipBusy = false;
+}
+function voiceBusy(){ return clipBusy || clipQ.length > 0 || (voiceOK && speechSynthesis.speaking); }
+// One cue: by id when a recording exists, else spoken. `now` cuts off whatever is playing.
+function cue(id, text, o){
+  o = o || {}; if (!o.force && profile.voice !== true) return;
+  if (o.now) hush();
+  if (clipsOn() && clipsMan.set.has(id)) { clipQ.push({ id, text, onstart: o.onstart, onend: o.onend }); drainClips(); }
+  else speakText(text, o);
+}
+function hush(){ stopClips(); if (voiceOK) try { speechSynthesis.cancel(); } catch(e){} }
+function stepIntro(o){ const [k] = ses.steps[ses.i]; const e = EX[k]; cue("step" + (ses.i + 1), `Step ${ses.i + 1} of ${ses.steps.length}.`, o); cue("intro_" + k, `${e.name}. ${START_POS[k] ? START_POS[k] + ". " : ""}${e.cue}`); }
 function halfCue(k){ const d = EX[k].dose; let m = d.match(/Switch ([^.]*?) halfway/i); if (m) return `Halfway. Switch ${m[1]}.`; if (/each side/i.test(d)) return "Halfway. Switch sides."; return ""; }
 
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
@@ -2197,25 +2238,26 @@ async function startSession(){
   clearInterval(tick); tick = setInterval(tickFn, 1000);
   try { wake = await navigator.wakeLock?.request("screen"); } catch(e){ wake = null; }
   if (!tv) beep("go");
-  say(stepIntro(), { now: true });
+  prefetchClips(["position", "rest", "ten", "done", ...ses.steps.map((s, i) => "step" + (i + 1)), ...ses.steps.flatMap(([k]) => ["intro_" + k, "dose_" + k, "watch_" + k, "half_" + k])]);
+  stepIntro({ now: true });
 }
 function beginStep(){ // leave the preview: short lead-in, then the work timer
   if (!ses || ses.phase !== "preview") return;
   ses.phase = "ready"; ses.remaining = ses.i === 0 ? 8 : 5; ses.running = true; beep("go"); renderStep();
-  say("Get into position.", { now: true });
+  cue("position", "Get into position.", { now: true });
 }
 function tickFn(){
   if (!ses || !ses.running) return;
   ses.remaining--; ses.elapsed++;
   if (ses.remaining <= 0) {
-    if (ses.phase === "ready") { ses.phase = "work"; ses.remaining = ses.steps[ses.i][1]; beep("go"); say(EX[ses.steps[ses.i][0]].dose); }
+    if (ses.phase === "ready") { ses.phase = "work"; ses.remaining = ses.steps[ses.i][1]; beep("go"); cue("dose_" + ses.steps[ses.i][0], EX[ses.steps[ses.i][0]].dose); }
     else { nextStep(); return; }
   } else if (ses.remaining <= 3 && ses.phase==="work") beep("tick");
   else if (ses.phase === "work") {
     const [k, sec] = ses.steps[ses.i]; const e = EX[k];
-    if (ses.remaining === Math.ceil(sec / 2) && halfCue(k)) say(halfCue(k), { now: true });
-    else if (sec >= 60 && ses.remaining === sec - 15 && e.watch) say("Watch out. " + e.watch);
-    else if (ses.remaining === 10 && !speechSynthesis.speaking) say("Ten seconds.");
+    if (ses.remaining === Math.ceil(sec / 2) && halfCue(k)) cue("half_" + k, halfCue(k), { now: true });
+    else if (sec >= 60 && ses.remaining === sec - 15 && e.watch) cue("watch_" + k, "Watch out. " + e.watch);
+    else if (ses.remaining === 10 && !voiceBusy()) cue("ten", "Ten seconds.");
   }
   renderClock();
 }
@@ -2224,9 +2266,9 @@ function nextStep(){
   ses.i++; beep("end");
   if (tv) { ses.phase = "preview"; ses.running = false; } else { ses.phase = "ready"; ses.remaining = 5; }
   renderStep();
-  hush(); say("Rest."); say(stepIntro());
+  hush(); cue("rest", "Rest."); stepIntro();
 }
-function prevStep(){ if (ses.i>0) ses.i--; if (tv) { ses.phase="preview"; ses.running=false; } else { ses.phase="ready"; ses.remaining=5; } renderStep(); say(stepIntro(), { now: true }); }
+function prevStep(){ if (ses.i>0) ses.i--; if (tv) { ses.phase="preview"; ses.running=false; } else { ses.phase="ready"; ses.remaining=5; } renderStep(); stepIntro({ now: true }); }
 function renderStep(){
   const [k,sec] = ses.steps[ses.i]; const e = EX[k];
   $("s-count").textContent = `Step ${ses.i+1} of ${ses.steps.length}`;
@@ -2261,7 +2303,7 @@ function renderClock(){
 }
 function finishSession(){
   clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview");
-  beep("end"); hush(); say("Done. Nice work. Log how your back felt.");
+  beep("end"); hush(); cue("done", "Done. Nice work. Log how your back felt.");
   $("c-min").textContent = Math.max(1, Math.round(ses.elapsed/60));
   $("c-choice").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"));
   $("c-note").value = "";
@@ -2349,6 +2391,7 @@ function bindUI(){
   });
   $("o-sound").addEventListener("change", async e=>{ profile.sound = e.target.checked; await saveProfile(); });
   $("o-voice").addEventListener("change", async e=>{ profile.voice = e.target.checked; $("o-voice-row").hidden = !profile.voice; if (profile.voice) { renderVoices(); say("Voice walkthrough is on. Tap a voice below to hear it.", { force: true, now: true }); } else hush(); await saveProfile(); });
+  loadClipsManifest().then(() => { if (!$("settings").hidden && profile.voice === true) renderVoices(); });
   $("o-voices-more").addEventListener("click", ()=>{ voicesExpanded = true; renderVoices(); });
   $("o-voice-rate").addEventListener("input", e=>{ voiceCfg.rate = (+e.target.value) / 100; $("o-voice-rate-l").textContent = voiceCfg.rate.toFixed(2).replace(/0$/, "") + "×"; });
   $("o-voice-rate").addEventListener("change", ()=>{ saveVoiceCfg(); say("Hold 10 seconds, rest 3 seconds. Repeat.", { force: true, now: true }); });
