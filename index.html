@@ -273,6 +273,9 @@ body.tv.in-session .top .gear{display:none}
 .guide-item .d{font-size:13px;color:var(--ink-2)}
 
 .chk{display:flex;gap:10px;align-items:center;font-size:14.5px}
+.voice{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.voice[aria-pressed="true"]{border-color:var(--accent)}
+.voice b{font-size:15px} .voice .small{display:block} .voice .play{font-size:13px;font-weight:700;color:var(--ink-2);white-space:nowrap} .voice[aria-pressed="true"] .play{color:var(--accent)}
 .chk input{width:20px;height:20px;accent-color:var(--accent)}
 .danger{color:var(--bad)}
 </style>
@@ -506,7 +509,13 @@ body.tv.in-session .top .gear{display:none}
         <div class="stack" id="o-voice-wrap" style="gap:6px">
           <label class="chk"><input type="checkbox" id="o-voice"> Voice walkthrough</label>
           <p class="small muted" style="margin:-2px 0 0 30px">Reads each exercise aloud while the timer runs: the setup, what to do, when to switch sides.</p>
-          <div class="row" id="o-voice-row" hidden style="margin-left:30px"><button class="btn ghost sm" id="o-voice-test">Test the voice</button><span class="small muted" id="o-voice-note">Uses your phone's built-in speech. If you can't hear it, check the ring/silent switch.</span></div>
+          <div class="stack" id="o-voice-row" hidden style="margin-left:30px;gap:6px">
+            <p class="small muted" id="o-voice-note" style="margin:0">Tap a voice to hear it. Voices come from this phone, so each phone picks its own.</p>
+            <div class="stack voices" id="o-voices" style="gap:6px"></div>
+            <button class="btn ghost sm" id="o-voices-more" hidden>Show all voices</button>
+            <div class="row" style="justify-content:space-between"><span class="small">Speed</span><input type="range" id="o-voice-rate" min="80" max="120" step="5" value="100" style="flex:1;margin-left:12px"><span class="small num muted" id="o-voice-rate-l" style="width:36px;text-align:right">1.0×</span></div>
+            <p class="small muted" style="margin:0">For a much better voice on iPhone: Settings → Accessibility → Spoken Content → Voices → English → download one marked <b>Premium</b> (Ava, Zoe or Evan), then come back and pick it here.</p>
+          </div>
         </div>
         <div class="row" style="justify-content:space-between"><span class="small muted">Version <span id="o-version" class="num"></span></span><button class="btn ghost sm" id="o-update">Check for updates</button></div>
         <button class="btn ghost" id="o-reset-block">Restart current block from week 1</button>
@@ -574,7 +583,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.20-0545";
+const APP_VERSION = "2026.10.20-0617";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1953,6 +1962,23 @@ function renderBlocks(){
   $("o-sound").checked = profile.sound!==false;
   $("o-voice").checked = voiceOK && profile.voice === true; $("o-voice").disabled = !voiceOK; $("o-voice-row").hidden = !(voiceOK && profile.voice === true);
   if (!voiceOK) $("o-voice-note").textContent = "This browser has no speech engine.";
+  if (voiceOK && profile.voice === true) renderVoices();
+}
+const PREVIEW = "Step 2 of 7. McGill Curl-Up. On back. One knee bent, one leg straight. Hands under the small of your back. Lift only your head and shoulders an inch.";
+let voicesExpanded = false, voicePlaying = "";
+function renderVoices(){
+  const box = $("o-voices"); const all = listVoices(); const cur = pickVoice();
+  if (!all.length) { box.innerHTML = `<p class="small muted" style="margin:0">No English voices reported yet. If this list stays empty, this browser doesn't expose its voices to web pages.</p>`; $("o-voices-more").hidden = true; return; }
+  const curKey = cur ? cur.name + "|" + cur.lang : ""; const curIdx = all.findIndex(v => v.name + "|" + v.lang === curKey);
+  const show = voicesExpanded || all.length <= 6 ? all : all.slice(0, Math.max(6, curIdx + 1));
+  box.innerHTML = show.map(v => { const l = voiceLabel(v); const key = v.name + "|" + v.lang; const on = key === curKey;
+    return `<button type="button" class="voice" data-voice="${esc(key)}" aria-pressed="${on}"><span><b>${esc(l.base)}</b>${l.tier ? ` <span class="pill">${l.tier}</span>` : ""}<span class="small muted">${esc(l.lang)}${v.localService ? "" : " · needs internet"}</span></span><span class="play">${voicePlaying === key ? "▶ Playing" : on ? "✓ Selected" : "▶"}</span></button>`; }).join("");
+  $("o-voices-more").hidden = voicesExpanded || show.length >= all.length; $("o-voices-more").textContent = `Show all ${all.length} voices`;
+  box.querySelectorAll("[data-voice]").forEach(b => b.addEventListener("click", () => {
+    const [name, lang] = b.dataset.voice.split("|"); voiceCfg.name = name; voiceCfg.lang = lang; saveVoiceCfg(); voicePick = null; voicePlaying = b.dataset.voice; renderVoices();
+    say(PREVIEW, { force: true, now: true, onend: () => { if (voicePlaying === b.dataset.voice) { voicePlaying = ""; if (!$("settings").hidden) renderVoices(); } } });
+  }));
+  $("o-voice-rate").value = Math.round((voiceCfg.rate || 1) * 100); $("o-voice-rate-l").textContent = (voiceCfg.rate || 1).toFixed(2).replace(/0$/, "") + "×";
 }
 function renderPeople(){
   const who = me();
@@ -2127,20 +2153,34 @@ function beep(kind){
 /* ---- Voice walkthrough: the device's own speech engine reads each step (name, start position, how-to), then the dose when the
    clock starts, a halfway "switch sides" where the step calls for it, and the back-safety watch-out on longer steps. No files, no network. ---- */
 const voiceOK = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+// The voice itself is the phone's: which one, and how fast, is a per-phone choice kept in this browser (not synced).
+let voiceCfg = { name: "", lang: "", rate: 1 };
+try { const v = JSON.parse(localStorage.getItem("coreten.voice") || "null"); if (v && typeof v === "object") voiceCfg = { name: String(v.name || ""), lang: String(v.lang || ""), rate: Math.min(1.2, Math.max(0.8, +v.rate || 1)) }; } catch(e){}
+function saveVoiceCfg(){ try { localStorage.setItem("coreten.voice", JSON.stringify(voiceCfg)); } catch(e){} }
+const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Fred|Good News|Jester|Junior|Kathy|Organ|Princess|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/;
+const LANGS = { "en-US": "US English", "en-GB": "British English", "en-AU": "Australian English", "en-IE": "Irish English", "en-IN": "Indian English", "en-ZA": "South African English", "en-SCOTLAND": "Scottish English" };
+function voiceTier(v){ return /premium/i.test(v.name) ? 3 : /enhanced/i.test(v.name) ? 2 : /^(Google|Microsoft)/.test(v.name) && !v.localService ? 1 : 1; }
+// English voices on this device, best first (Premium > Enhanced > the rest; US first within a tier), novelty voices dropped.
+function listVoices(){
+  let vs = []; try { vs = speechSynthesis.getVoices(); } catch(e){}
+  const seen = new Set(); const out = [];
+  for (const v of vs) { if (!/^en[-_]/i.test(v.lang) || NOVELTY.test(v.name)) continue; const k = v.name + "|" + v.lang; if (seen.has(k)) continue; seen.add(k); out.push(v); }
+  return out.sort((a, b) => (voiceTier(b) - voiceTier(a)) || ((b.lang === "en-US") - (a.lang === "en-US")) || a.name.localeCompare(b.name));
+}
 let voicePick = null;
 function pickVoice(){
-  if (voicePick) return voicePick; let vs = []; try { vs = speechSynthesis.getVoices(); } catch(e){} if (!vs.length) return null;
-  const en = vs.filter(v => /^en[-_]/i.test(v.lang)); const pref = ["Samantha", "Google US English", "Microsoft Aria", "Microsoft Jenny", "Microsoft Zira", "Karen", "Daniel", "Moira", "Tessa"];
-  voicePick = en.find(v => pref.some(p => v.name.startsWith(p))) || en.find(v => v.localService) || en[0] || vs[0]; return voicePick;
+  if (voicePick) return voicePick; const vs = listVoices(); if (!vs.length) return null;
+  voicePick = (voiceCfg.name && vs.find(v => v.name === voiceCfg.name && (!voiceCfg.lang || v.lang === voiceCfg.lang))) || vs.find(v => v.name === voiceCfg.name) || vs[0]; return voicePick;
 }
-if (voiceOK) try { speechSynthesis.addEventListener("voiceschanged", () => { voicePick = null; }); } catch(e){}
+if (voiceOK) try { speechSynthesis.addEventListener("voiceschanged", () => { voicePick = null; if (typeof renderVoices === "function" && !$("settings").hidden) renderVoices(); }); } catch(e){}
+function voiceLabel(v){ const base = v.name.replace(/\s*\((Premium|Enhanced|Compact)\)\s*/i, ""); const tier = /premium/i.test(v.name) ? "Premium" : /enhanced/i.test(v.name) ? "Enhanced" : ""; return { base, tier, lang: LANGS[v.lang.replace("_", "-")] || v.lang }; }
 function sayText(s){ return String(s).replace(/<[^>]+>/g, "").replace(/\s*·\s*/g, ", ").replace(/–/g, " ").replace(/\b(\d+)s\b/g, (m, n) => n + (n === "1" ? " second" : " seconds")).replace(/\s+/g, " ").trim(); }
 function say(text, o){
   o = o || {}; if (!voiceOK || (!o.force && profile.voice !== true)) return;
   try {
     if (o.now) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(sayText(text)); const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-US";
-    u.rate = 1; u.pitch = 1; u.volume = 1; speechSynthesis.speak(u);
+    u.rate = voiceCfg.rate || 1; u.pitch = 1; u.volume = 1; if (o.onstart) u.onstart = o.onstart; if (o.onend) { u.onend = o.onend; u.onerror = o.onend; } speechSynthesis.speak(u);
   } catch(e){}
 }
 function hush(){ if (voiceOK) try { speechSynthesis.cancel(); } catch(e){} }
@@ -2308,8 +2348,10 @@ function bindUI(){
     ses = null; renderAll(); showView("home"); toast(`Saved. ${nextTrainingLabel()}`);
   });
   $("o-sound").addEventListener("change", async e=>{ profile.sound = e.target.checked; await saveProfile(); });
-  $("o-voice").addEventListener("change", async e=>{ profile.voice = e.target.checked; $("o-voice-row").hidden = !profile.voice; if (profile.voice) say("Voice walkthrough is on. I'll read each exercise as the timer runs.", { force: true, now: true }); else hush(); await saveProfile(); });
-  $("o-voice-test").addEventListener("click", ()=> say("Step 1 of 8. Cat Cow. All fours. " + EX.catcow.cue, { force: true, now: true }));
+  $("o-voice").addEventListener("change", async e=>{ profile.voice = e.target.checked; $("o-voice-row").hidden = !profile.voice; if (profile.voice) { renderVoices(); say("Voice walkthrough is on. Tap a voice below to hear it.", { force: true, now: true }); } else hush(); await saveProfile(); });
+  $("o-voices-more").addEventListener("click", ()=>{ voicesExpanded = true; renderVoices(); });
+  $("o-voice-rate").addEventListener("input", e=>{ voiceCfg.rate = (+e.target.value) / 100; $("o-voice-rate-l").textContent = voiceCfg.rate.toFixed(2).replace(/0$/, "") + "×"; });
+  $("o-voice-rate").addEventListener("change", ()=>{ saveVoiceCfg(); say("Hold 10 seconds, rest 3 seconds. Repeat.", { force: true, now: true }); });
   $("o-version").textContent = APP_VERSION;
   $("o-update").addEventListener("click", ()=>checkForUpdate(true));
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") checkForUpdate(false); });
