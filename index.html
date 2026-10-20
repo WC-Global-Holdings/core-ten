@@ -574,7 +574,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.20-0225";
+const APP_VERSION = "2026.10.20-0343";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1484,7 +1484,6 @@ const H3 = (() => {
   return { ready, isReady, drawTo, makeViewer, poseOf, lerpPose, movesOf, contactAnchor, _pose: poseModel, _load: loadGLB, _model: () => model };
 })();
 
-
 /* ============================ STATE ============================ */
 const $ = id => document.getElementById(id);
 const todayKey = (d = new Date()) => { const z = new Date(d.getTime() - d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
@@ -1705,6 +1704,7 @@ async function syncNow(reason){
     setSyncStatus("Sync failed · " + m, true); if (reason === "manual") toast("Sync failed · " + m);
   } finally { syncing = false; if (syncAgain) { syncAgain = false; scheduleSync(); } }
 }
+
 /* ---- Plan for any day: past days show what was logged, today and future days show the projected session (A/B alternates per
    session done in the block; a rest day shows the session that would be next if you train anyway). ---- */
 function planFor(k, name){
@@ -1734,6 +1734,7 @@ function openPlan(k){
   $("plan").hidden = false; document.body.style.overflow = "hidden";
 }
 function closePlan(){ $("plan").hidden = true; document.body.style.overflow = ""; }
+
 /* ---- Updates. The home-screen copy is served by GitHub Pages with a 10-minute cache and iOS keeps the loaded page around even
    longer, so the app checks a tiny version file (never cached) on launch and when it comes back to the foreground, and reloads
    itself through a fresh URL when a newer build is out. Never mid-session. ---- */
@@ -2125,6 +2126,7 @@ function say(text, o){
 function hush(){ if (voiceOK) try { speechSynthesis.cancel(); } catch(e){} }
 function stepIntro(){ const [k] = ses.steps[ses.i]; const e = EX[k]; return `Step ${ses.i + 1} of ${ses.steps.length}. ${e.name}. ${START_POS[k] ? START_POS[k] + ". " : ""}${e.cue}`; }
 function halfCue(k){ const d = EX[k].dose; let m = d.match(/Switch ([^.]*?) halfway/i); if (m) return `Halfway. Switch ${m[1]}.`; if (/each side/i.test(d)) return "Halfway. Switch sides."; return ""; }
+
 // In TV mode every step opens in a preview: the animation plays, the timer waits for Start. On the phone the 5s "get into position" countdown runs as before.
 async function startSession(){
   const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who);
@@ -2302,5 +2304,4 @@ try { window.claude?.hot?.snapshot?.(()=>({ ses })); } catch(e){}
 const start = data => { if (data && data.ses) { ses = data.ses; } boot().then(()=>{ if (ses) { showView("session"); renderStep(); clearInterval(tick); tick=setInterval(tickFn,1000); } }); };
 try { window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {}); } catch(e){ start({}); }
 </script>
-
 </body></html>
