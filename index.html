@@ -359,6 +359,7 @@ body.tv.in-session .top .gear{display:none}
     <section class="view stack" id="v-checkin" hidden>
       <div class="card stack">
         <span class="eyebrow">Done · <span id="c-min" class="num">10</span> min</span>
+        <p class="small" id="c-watch" hidden style="margin:0;padding:10px 12px;border-radius:12px;background:var(--accent-soft)"></p>
         <div id="c-who-wrap" class="stack" style="gap:8px"><span class="small muted">Who did it?</span><div class="chips" id="c-who"></div></div>
         <h2 style="font-size:30px" id="c-q">How does your back feel right now, compared to before?</h2>
         <div class="choice" id="c-choice">
@@ -442,6 +443,18 @@ body.tv.in-session .top .gear{display:none}
     <div class="stack" id="gprint-body"></div>
   </div>
 </div>
+<div class="sheet" id="watch" hidden role="dialog" aria-modal="true" aria-labelledby="watch-title">
+  <div class="in">
+    <div class="grab"></div>
+    <span class="eyebrow" id="watch-title">Apple Watch</span>
+    <h2 style="font-size:26px;margin:0">Start <b>Core Training</b> on your Watch</h2>
+    <p class="small muted" style="margin:0">On the Watch: Workout → Core Training. Or raise your wrist and say “Start a core training workout.” Then come back and start here.</p>
+    <button class="btn" id="watch-run" hidden>Run shortcut</button>
+    <button class="btn" id="watch-go">It's running · start Core Ten</button>
+    <button class="btn ghost sm" id="watch-skip">Not today · start without the Watch</button>
+    <button class="btn ghost sm" id="watch-cancel">Cancel</button>
+  </div>
+</div>
 <div class="sheet" id="who" hidden role="dialog" aria-modal="true" aria-labelledby="who-title">
   <div class="in">
     <div class="grab"></div>
@@ -517,6 +530,14 @@ body.tv.in-session .top .gear{display:none}
             <p class="small muted" style="margin:0" id="o-voice-help">iPhone doesn't let web apps use its downloaded Premium voices — only these built-in ones. The recorded coach, when it's been made, is the good-sounding option.</p>
           </div>
         </div>
+        <div class="stack" id="o-watch-wrap" style="gap:6px">
+          <label class="chk"><input type="checkbox" id="o-watch"> Apple Watch workout reminder</label>
+          <p class="small muted" style="margin:-2px 0 0 30px">Tapping Start first asks you to start Core Training on your Watch, so the session lands in Fitness and your rings. The check-in reminds you to end it. This phone only.</p>
+          <div class="stack" id="o-watch-row" hidden style="margin-left:30px;gap:6px">
+            <div class="addrow"><input id="o-watch-sc" type="text" maxlength="60" placeholder="Shortcut name (optional)" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+            <p class="small muted" style="margin:0">If you've made a shortcut that starts the workout, type its exact name and the reminder gets a button that runs it.</p>
+          </div>
+        </div>
         <div class="row" style="justify-content:space-between"><span class="small muted">Version <span id="o-version" class="num"></span></span><button class="btn ghost sm" id="o-update">Check for updates</button></div>
         <button class="btn ghost" id="o-reset-block">Restart current block from week 1</button>
     </div>
@@ -583,7 +604,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.20-0710";
+const APP_VERSION = "2026.10.21-0424";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -1782,7 +1803,7 @@ async function checkForUpdate(manual){
   } catch(e){ if (manual) toast("Couldn't check for updates (offline?)"); }
 }
 function closeSettings(){ $("settings").hidden = true; document.body.style.overflow = ""; }
-function renderSettings(){ if (voiceOK && profile.voice === true) renderVoices(); setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token; if (sync.token) $("o-sync-url").value = setupLink(); }
+function renderSettings(){ $("o-watch").checked = watchCfg.on; $("o-watch-row").hidden = !watchCfg.on; $("o-watch-sc").value = watchCfg.shortcut; if (voiceOK && profile.voice === true) renderVoices(); setSyncStatus($("o-sync-status").textContent); $("o-sync-share").hidden = !sync.token; if (sync.token) $("o-sync-url").value = setupLink(); }
 // Setup link: the token rides in the URL fragment (never sent to the server), is stored on open, then stripped from the address bar.
 // Inside claude.ai the page has no shareable address, so the link points at the self-hosted copy of the app.
 const HOSTED_APP = "https://wc-global-holdings.github.io/core-ten/";
@@ -2139,10 +2160,10 @@ async function setBlock(n){
 
 /* ============================ SESSION ============================ */
 let ses = null; // {steps, i, remaining, phase, running, startedAt, elapsed, day, block}
-let tick = null, wake = null, audio = null;
+let tick = null, wake = null, audio = null, quietTick = false;
 
 function beep(kind){
-  if (profile.sound===false) return;
+  if (profile.sound===false || quietTick) return;
   try {
     try { if (navigator.audioSession && navigator.audioSession.type !== "ambient") navigator.audioSession.type = "ambient"; } catch(e){}
     audio = audio || new (window.AudioContext||window.webkitAudioContext)();
@@ -2219,7 +2240,7 @@ async function drainClips(){
 function voiceBusy(){ return clipBusy || clipQ.length > 0 || (voiceOK && speechSynthesis.speaking); }
 // One cue: by id when a recording exists, else spoken. `now` cuts off whatever is playing.
 function cue(id, text, o){
-  o = o || {}; if (!o.force && profile.voice !== true) return;
+  o = o || {}; if (quietTick || (!o.force && profile.voice !== true)) return;
   if (o.now) hush();
   if (clipsOn() && clipsMan.set.has(id)) { clipQ.push({ id, text, onstart: o.onstart, onend: o.onend }); drainClips(); }
   else speakText(text, o);
@@ -2232,10 +2253,10 @@ function halfCue(k){ const d = EX[k].dose; let m = d.match(/Switch ([^.]*?) half
 async function startSession(){
   peekGist();
   const who = me(); const pl = plan(who); const B = BLOCKS[pl.block-1]; const day = todayDay(who);
-  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: pl.block, who: [who, ...profile.people.filter(n=>n!==who && joiners.has(n))] };
+  ses = { steps: B[day].steps, i: 0, remaining: 8, phase: tv ? "preview" : "ready", running: !tv, elapsed: 0, day, block: pl.block, who: [who, ...profile.people.filter(n=>n!==who && joiners.has(n))], startedAt: Date.now(), lastTick: Date.now() };
   showView("session");
   renderStep();
-  clearInterval(tick); tick = setInterval(tickFn, 1000);
+  clearInterval(tick); tick = setInterval(tickFn, 250);
   try { wake = await navigator.wakeLock?.request("screen"); } catch(e){ wake = null; }
   if (!tv) beep("go");
   prefetchClips(["position", "rest", "ten", "done", ...ses.steps.map((s, i) => "step" + (i + 1)), ...ses.steps.flatMap(([k]) => ["intro_" + k, "dose_" + k, "watch_" + k, "half_" + k])]);
@@ -2243,11 +2264,22 @@ async function startSession(){
 }
 function beginStep(){ // leave the preview: short lead-in, then the work timer
   if (!ses || ses.phase !== "preview") return;
-  ses.phase = "ready"; ses.remaining = ses.i === 0 ? 8 : 5; ses.running = true; beep("go"); renderStep();
+  ses.phase = "ready"; ses.remaining = ses.i === 0 ? 8 : 5; ses.running = true; ses.lastTick = Date.now(); beep("go"); renderStep();
   cue("position", "Get into position.", { now: true });
 }
+/* The clock is wall time, not a count of timer callbacks: iOS freezes the page while you're in another app (starting the Watch
+   workout, a notification), so on return every second that passed is applied at once, silently, and the session is where it
+   would have been. */
 function tickFn(){
-  if (!ses || !ses.running) return;
+  if (!ses) return;
+  const now = Date.now();
+  if (!ses.running || !ses.lastTick) { ses.lastTick = now; return; }
+  let owed = Math.floor((now - ses.lastTick) / 1000); if (owed <= 0) return;
+  ses.lastTick += owed * 1000;
+  while (owed-- > 0 && ses && ses.running) { quietTick = owed > 0; tickOnce(); }
+  quietTick = false;
+}
+function tickOnce(){
   ses.remaining--; ses.elapsed++;
   if (ses.remaining <= 0) {
     if (ses.phase === "ready") { ses.phase = "work"; ses.remaining = ses.steps[ses.i][1]; beep("go"); cue("dose_" + ses.steps[ses.i][0], EX[ses.steps[ses.i][0]].dose); }
@@ -2302,9 +2334,10 @@ function renderClock(){
   $("s-pause").textContent = ses.running ? "Pause" : "Resume";
 }
 function finishSession(){
+  ses.running = false; quietTick = false;
   clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview");
   beep("end"); hush(); cue("done", "Done. Nice work. Log how your back felt.");
-  $("c-min").textContent = Math.max(1, Math.round(ses.elapsed/60));
+  $("c-min").textContent = Math.max(1, Math.round(ses.elapsed/60)); renderWatchNote();
   $("c-choice").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"));
   $("c-note").value = "";
   // Roster: everyone pre-selected when it was a TV session, otherwise just you.
@@ -2316,6 +2349,35 @@ function finishSession(){
   showView("checkin");
 }
 function quitSession(){ hush(); clearInterval(tick); try { wake?.release(); } catch(e){} if (sfig && sfig.stop) sfig.stop(); sfig = null; sfigKey = null; document.body.classList.remove("preview"); ses = null; showView("home"); }
+
+/* ---- Apple Watch workout. A web app can't reach the Watch or Health, so this is a reminder at the one moment it works: tapping
+   Start first asks you to start Core Training on the Watch (with a button that runs a Shortcut, if you've named one), and the
+   check-in reminds you to end it, or, if you skipped, gives the session's times so it can be logged in Health afterwards.
+   Kept per phone, not synced: not every phone in the family has a Watch. ---- */
+let watchCfg = { on: false, shortcut: "" };
+try { const w = JSON.parse(localStorage.getItem("coreten.watch") || "null"); if (w && typeof w === "object") watchCfg = { on: w.on === true, shortcut: String(w.shortcut || "").slice(0, 60) }; } catch(e){}
+function saveWatchCfg(){ try { localStorage.setItem("coreten.watch", JSON.stringify(watchCfg)); } catch(e){} }
+let watchState = "", watchTV = false; // watchState: "started" | "skipped" | "" for the session being started
+function requestStart(tvMode){
+  watchState = "";
+  if (!watchCfg.on) { if (tvMode) setTV(true); startSession(); return; }
+  watchTV = !!tvMode; const sc = watchCfg.shortcut.trim();
+  $("watch-run").hidden = !sc; $("watch-run").className = "btn"; $("watch-run").textContent = `Run “${sc}”`; $("watch-go").textContent = "It's running · start Core Ten"; $("watch-go").className = sc ? "btn ghost" : "btn";
+  $("watch").hidden = false; document.body.style.overflow = "hidden";
+}
+function closeWatch(){ $("watch").hidden = true; document.body.style.overflow = ""; }
+function watchProceed(state){ watchState = state; closeWatch(); if (watchTV) setTV(true); startSession(); }
+function runWatchShortcut(){
+  const sc = watchCfg.shortcut.trim(); if (!sc) return;
+  $("watch-go").textContent = "Back from Shortcuts · start Core Ten"; $("watch-go").className = "btn"; $("watch-run").className = "btn ghost";
+  location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent(sc);
+}
+const hhmm = t => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function renderWatchNote(){
+  const el = $("c-watch"); el.hidden = !watchState;
+  if (watchState === "started") el.innerHTML = "⌚ <b>End the workout on your Watch</b> — swipe right in the workout and tap End.";
+  else if (watchState === "skipped" && ses) el.innerHTML = `⌚ Not recorded on the Watch. To add it to Fitness: Health app → search <b>Workouts</b> → <b>+</b> → Activity Type <b>Core Training</b> (or Functional Strength Training if it isn't listed), start <b>${hhmm(ses.startedAt)}</b>, end <b>${hhmm(Date.now())}</b> → Add.`;
+}
 
 /* ============================ UI ============================ */
 function showView(v){
@@ -2329,8 +2391,14 @@ let toastT; function toast(m){ const t=$("toast"); t.textContent=m; t.classList.
 
 function bindUI(){
   $("rail").querySelectorAll("button[data-view]").forEach(b=>b.addEventListener("click",()=>{ showView(b.dataset.view); if (b.dataset.view === "progress") peekGist(); }));
-  $("h-start").addEventListener("click", startSession);
-  $("h-tv").addEventListener("click", ()=>{ setTV(true); startSession(); });
+  $("h-start").addEventListener("click", ()=>requestStart(false));
+  $("h-tv").addEventListener("click", ()=>requestStart(true));
+  $("watch-go").addEventListener("click", ()=>watchProceed("started"));
+  $("watch-skip").addEventListener("click", ()=>watchProceed("skipped"));
+  $("watch-cancel").addEventListener("click", closeWatch);
+  $("watch-run").addEventListener("click", runWatchShortcut);
+  $("o-watch").addEventListener("change", e=>{ watchCfg.on = e.target.checked; $("o-watch-row").hidden = !watchCfg.on; saveWatchCfg(); });
+  $("o-watch-sc").addEventListener("change", e=>{ watchCfg.shortcut = e.target.value.trim().slice(0, 60); e.target.value = watchCfg.shortcut; saveWatchCfg(); });
   $("o-music-save").addEventListener("click", saveMusic);
   $("h-today").addEventListener("click", ()=>stripScrollToWeek(7 * STRIP_WEEKS, true));
   $("plan-close").addEventListener("click", closePlan);
@@ -2408,7 +2476,7 @@ function bindUI(){
 
 /* hot-update: keep a running session across republishes */
 try { window.claude?.hot?.snapshot?.(()=>({ ses })); } catch(e){}
-const start = data => { if (data && data.ses) { ses = data.ses; } boot().then(()=>{ if (ses) { showView("session"); renderStep(); clearInterval(tick); tick=setInterval(tickFn,1000); } }); };
+const start = data => { if (data && data.ses) { ses = data.ses; ses.lastTick = Date.now(); } boot().then(()=>{ if (ses) { showView("session"); renderStep(); clearInterval(tick); tick=setInterval(tickFn,250); } }); };
 try { window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {}); } catch(e){ start({}); }
 </script>
 </body></html>
