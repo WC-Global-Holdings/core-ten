@@ -604,7 +604,7 @@ const BLOCKS = [
     B:{title:"Session B", desc:"Hinge, glutes, legs. Then walk.", steps:[["tilt",40],["deadbug2",80],["bridge_1",100],["splank_f",80],["rlunge",90],["wallsit",90],["walk",60]]} },
 ];
 const SESSIONS_TO_ADVANCE = 20;
-const APP_VERSION = "2026.10.21-0424";
+const APP_VERSION = "2026.10.21-0435";
 // Starting position for each move: shown beside the time on the day's list so you know how to set up before the timer starts.
 const START_POS = { catcow:"All fours", tilt:"On back", curlup:"On back", curlup2:"On back", splank_k:"On side · knees", splank_f:"On side", splank_r:"On side",
   birddog:"All fours", birddog2:"All fours", bridge:"On back", bridge_h:"On back", bridge_1:"On back", deadbug:"On back", deadbug2:"On back",
@@ -2267,18 +2267,20 @@ function beginStep(){ // leave the preview: short lead-in, then the work timer
   ses.phase = "ready"; ses.remaining = ses.i === 0 ? 8 : 5; ses.running = true; ses.lastTick = Date.now(); beep("go"); renderStep();
   cue("position", "Get into position.", { now: true });
 }
-/* The clock is wall time, not a count of timer callbacks: iOS freezes the page while you're in another app (starting the Watch
-   workout, a notification), so on return every second that passed is applied at once, silently, and the session is where it
-   would have been. */
+/* The clock counts real seconds rather than timer callbacks, so a throttled or late callback (low-power mode) doesn't make
+   the timer drift. Leaving the app pauses the session (autoPause): time away is never counted as exercise. If the page was
+   frozen without the browser saying so, a gap of more than a few seconds is treated the same way. */
 function tickFn(){
   if (!ses) return;
   const now = Date.now();
   if (!ses.running || !ses.lastTick) { ses.lastTick = now; return; }
   let owed = Math.floor((now - ses.lastTick) / 1000); if (owed <= 0) return;
+  if (owed > 5) { autoPause(); return; }
   ses.lastTick += owed * 1000;
   while (owed-- > 0 && ses && ses.running) { quietTick = owed > 0; tickOnce(); }
   quietTick = false;
 }
+function autoPause(){ if (!ses || !ses.running) return; ses.running = false; ses.lastTick = 0; hush(); renderClock(); }
 function tickOnce(){
   ses.remaining--; ses.elapsed++;
   if (ses.remaining <= 0) {
@@ -2465,6 +2467,8 @@ function bindUI(){
   $("o-voice-rate").addEventListener("change", ()=>{ saveVoiceCfg(); say("Hold 10 seconds, rest 3 seconds. Repeat.", { force: true, now: true }); });
   $("o-version").textContent = APP_VERSION;
   $("o-update").addEventListener("click", ()=>checkForUpdate(true));
+  document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="hidden") autoPause(); });
+  window.addEventListener("pagehide", autoPause);
   document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") checkForUpdate(false); });
   setTimeout(()=>checkForUpdate(false), 1500);
   $("o-reset-block").addEventListener("click", async ()=>{ plan(me()).blockStart = todayKey(); stampPlan(me()); await saveProfile(); renderAll(); toast("Block clock reset to week 1"); });
